@@ -22,7 +22,7 @@ def health_check():
 def database_health(db: Session = Depends(get_db)):
     try:
         result = db.execute(text("SELECT 1"))
-        if result.scalar() != 1:
+        if result.scalar_one() != 1:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="falha na verificaçao do banco"
@@ -34,6 +34,6 @@ def database_health(db: Session = Depends(get_db)):
         }
     except SQLAlchemyError:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="banco de dados indisponivel"
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Banco de dados indisponivel"
         )

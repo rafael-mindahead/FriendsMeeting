@@ -1,4 +1,9 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException, status
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
+
+from app.Database.database import get_db
 
 app = FastAPI(
     title = "FriendsMeeting API",
@@ -12,3 +17,23 @@ def health_check():
         "service" : "FriendsMeeting",
         "version" : "0.1.0"
     }
+
+@app.get("/api/v1/health/database")
+def database_health(db: Session = Depends(get_db)):
+    try:
+        result = db.execute(text("SELECT 1"))
+        if result.scalar() != 1:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="falha na verificaçao do banco"
+            )
+        return {
+            "status": "ok",
+            "database": "PostgreSQL",
+            "connection": "healthy"
+        }
+    except SQLAlchemyError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="banco de dados indisponivel"
+        )

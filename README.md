@@ -1,183 +1,145 @@
-
 # FriendsMeeting
 
-Plataforma de mensagens instantâneas desenvolvida com Python,
-FastAPI e ESP32, utilizando comunicação em tempo real via WebSocket.
+Chat local com ESP32 intermediando mensagens WebSocket entre notebooks.
+O núcleo FastAPI do FriendsMeeting administra **perfis (UUID), códigos de
+amizade e, futuramente, amizades e histórico**. Login, credenciais, tokens e
+sessões são responsabilidades do [authService](https://github.com/rafael-mindahead/authService).
 
-O projeto tem como diferencial o ESP32 atuando como servidor
-intermediário das mensagens entre dispositivos conectados
-à mesma rede local.
+> Estado: **integração de autenticação em desenvolvimento**.
+> A interface de chat, as amizades e o firmware do ESP32 ainda não estão prontos.
 
-## Tecnologias
+## Arquitetura
 
-- Python 3.12
-- FastAPI
-- PostgreSQL 16
-- Docker e Docker Compose
-- HTML, CSS e JavaScript (planejado)
-- ESP32 com C++ (planejado)
-- WebSocket (planejado)
+```text
+Browser --HTTP--> FriendsMeeting API --> FriendsMeeting PostgreSQL (profiles)
+                    |  |
+                    |  +--HTTP (GET /auth/me)--> authService API
+                    |                           |--> Auth PostgreSQL (accounts)
+                    |                           +--> Redis (sessions/refresh)
+Browser <-------- WebSocket ------------ ESP32 (planejado)
+```
 
-## Objetivo
+IDs no authService são **inteiros**. Cada perfil no FriendsMeeting tem um
+**UUID local** e `auth_user_id` (inteiro único e opcional para contas antigas).
+`friend_code` mantém o formato `FM-XXXXXXXX`. Tokens JWT não são
+decodificados pelo FriendsMeeting: a validação é delegada ao authService
+por meio de `/auth/me`.
 
-Permitir que usuários criem contas, adicionem amigos e troquem
-mensagens privadas em tempo real.
+Os perfis existentes do antigo cadastro local são preservados, inclusive os
+respectivos UUIDs. **Não associamos automaticamente contas pelo e-mail.**
+Perfis legados sem `auth_user_id` podem exigir uma migração assistida.
 
-O sistema será utilizado inicialmente em uma rede Wi-Fi local,
-compartilhada por um hotspot de celular.
+## Desenvolvimento local com Docker Desktop (Mac)
 
-## Funcionalidades planejadas
+Você precisa ter **ambos os repositórios** clonados:
 
-### Autenticação
-- Cadastro de usuários
-- Login e autenticação
-- Perfil individual
-- Código público único associado ao ID interno de cada usuário
-
-### Amizades
-- Busca de usuários pelo código público
-- Envio de solicitações de amizade
-- Aceitação e recusa de solicitações
-- Notificações de solicitações recebidas
-- Listagem de amigos
-
-### Mensagens
-- Conversas privadas entre amigos
-- Mensagens em tempo real via WebSocket
-- Histórico persistido no PostgreSQL
-- Sem limite artificial de quantidade de mensagens
-- ESP32 como intermediador da entrega das mensagens
-
-## Arquitetura planejada
-
-Frontend (HTML/CSS/JavaScript)
-       |             |
-       | HTTP        | WebSocket
-       v             v
-FastAPI            ESP32
-       |             |
-       |        Roteamento de
-       |        mensagens em tempo real
-       v
-PostgreSQL
-
-O FastAPI será responsável pelas contas, autenticação,
-amizades e persistência dos dados.
-
-O ESP32 será responsável pela comunicação WebSocket
-e pelo encaminhamento de mensagens entre os clientes.
-
-## Estrutura inicial
-
-FriendsMeeting/
-├── backend/
-│   ├── app/
-│   │   ├── __init__.py
-│   │   └── main.py
-│   ├── Dockerfile
-│   ├── .dockerignore
-│   └── requirements.txt
-├── compose.yaml
-├── .env.example
-├── .gitignore
-└── README.md
-
-## Executando o projeto
-
-Requisitos:
-- Docker
-- Docker Compose
-
-### 1. Clonar o repositório
-
+```bash
+git clone https://github.com/rafael-mindahead/authService.git
 git clone https://github.com/rafael-mindahead/FriendsMeeting.git
+```
 
-cd FriendsMeeting
+### 1. Inicie o authService
 
-### 2. Configurar ambiente
-
+```bash
+cd authService
+git switch develop
+git pull --ff-only origin develop
 cp .env.example .env
-
-Defina uma senha local segura em POSTGRES_PASSWORD.
-
-### 3. Inicializar os serviços
-
+# Edite as credenciais. Em SECRET_KEY, cole a saída de: openssl rand -hex 32
 docker compose up -d --build
+curl -i http://localhost:8001/health
+```
 
-### 4. Verificar o funcionamento
+O authService executa migrações com Alembic na inicialização da API.
+A porta 8001 é usada para evitar conflito com o FriendsMeeting na 8000.
+Mantenha o serviço restrito a um ambiente local de desenvolvimento.
 
-docker compose ps
+### 2. Inicie o FriendsMeeting
 
-curl http://localhost:8000/api/v1/health
+```bash
+cd ../FriendsMeeting
+git switch develop
+git pull --ff-only origin develop
+# Se ainda não existir: cp .env.example .env
+# Preserve as credenciais POSTGRES atuais (não remova o volume).
+# No Docker Desktop, AUTH_SERVICE_URL=http://host.docker.internal:8001
+docker compose up -d --build
+docker compose exec api alembic upgrade head
+curl -i http://localhost:8000/api/v1/health
+```
 
-### 5. Acessar a documentação da API
+Nunca use `docker compose down -v` para essa migração: removeria os dados.
 
-http://localhost:8000/docs
+### 3. Teste o fluxo (Swagger: http://localhost:8000/docs)
 
-### 6. Testar PostgreSQL
+```bash
+curl -i -X POST http://localhost:8000/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"amigo_01","email":"amigo01@example.com","password":"SenhaDeTeste2026!"}'
+```
 
-docker compose exec db sh -c \
-'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT 1;"'
+O FriendsMeeting converte `username` para o campo `name` do authService
+e grava um perfil local sem armazenar senha ou hash novo.
 
-### 7. Encerrar os serviços
+```bash
+curl -s -X POST http://localhost:8000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"amigo01@example.com","password":"SenhaDeTeste2026!"}'
+```
 
-docker compose down
+Use `access_token` retornado:
 
-Não utilize docker compose down -v sem necessidade:
-esse comando também remove os volumes de dados.
+```bash
+curl -i http://localhost:8000/api/v1/users/me \
+  -H "Authorization: Bearer COLE_SEU_ACCESS_TOKEN_AQUI"
+```
 
-## Status do desenvolvimento
+Rotas proxy disponíveis: `/api/v1/auth/register`, `login`, `refresh`,
+`logout`, `forgot-password`, `reset-password`; perfil em
+`GET /api/v1/users/me`. O serviço de autenticação deve estar acessível.
 
-- [x] Inicialização do FastAPI
-- [x] Dockerfile
-- [x] Docker Compose
-- [x] Contêiner PostgreSQL com healthcheck
-- [x] Endpoint de health da API
-- [ ] Conexão FastAPI/PostgreSQL
-- [ ] Modelagem do banco
-- [ ] Cadastro e login
-- [ ] Gerenciamento de amizades
-- [ ] Interface web
-- [ ] Comunicação WebSocket
-- [ ] Integração com ESP32
-- [ ] Testes de integração ponta a ponta
+Se o cadastro remoto funcionar mas o banco do FriendsMeeting falhar,
+o **próximo login** tenta provisionar o perfil novamente. Uma conta legada
+com e-mail idêntico **não será vinculada automaticamente**; trate o conflito
+explicitamente antes de continuar.
 
-## Evoluções futuras
+## Testes
 
-Uma funcionalidade experimental será manter a troca
-de mensagens entre usuários já conectados mesmo quando
-o FastAPI ficar temporariamente indisponível.
+No FriendsMeeting:
 
-Nesse cenário, a entrega em tempo real poderá continuar
-pelo ESP32, mas autenticação, novos logins e persistência
-dependerão de mecanismos adicionais.
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-dev.txt
+python -m pytest tests/ -v
+```
 
-## Organização do desenvolvimento
+A suíte de integração HTTP usa mocks e **não exige authService rodando**.
+O GitHub Actions repete os testes na branch `develop` e em pull requests.
 
-O projeto segue o método CRT:
+**Atenção ao authService:** sua suíte de testes apaga e recria tabelas.
+Execute-a somente com `.env.test`, apontando a banco dedicado com sufixo
+`_test` e Redis DB `/1`.
 
-1. Criar a funcionalidade.
-2. Ler e revisar sua implementação.
-3. Testar e validar seu comportamento.
+## Próximas entregas
 
-Cada funcionalidade terá commits rastreáveis.
-
-Branches:
-- main: versão estável
-- develop: integração de novas funcionalidades
-- feature/*: desenvolvimento de funcionalidades específicas
+- [x] Docker, PostgreSQL, SQLAlchemy, Alembic e tabela de perfis
+- [x] Cliente HTTP para authService, rotas proxy e vínculo por `auth_user_id`
+- [ ] Validar o fluxo completo entre os dois projetos no Mac
+- [ ] Solicitações de amizade e notificações de eventos
+- [ ] Persistência de mensagens e histórico
+- [ ] Firmware ESP32 WebSocket e testes via hotspot do celular
+- [ ] Interface web de login, amigos e chat
 
 ## Segurança
 
-O arquivo .env não deve ser versionado.
+O authService mantém credenciais, JWT e refresh tokens. O FriendsMeeting não
+deve compartilhar seu `SECRET_KEY` nem confiar em IDs enviados pelo navegador.
+`.env` nunca entra no Git. Antes de disponibilizar o sistema fora da rede
+controlada, configurar HTTPS/WSS, políticas CORS, limites de taxa e observabilidade.
 
-Senhas de usuários deverão ser armazenadas utilizando
-hash seguro. As rotas e conexões de mensagens deverão
-exigir autenticação e autorização.
+### Método CRT
 
-A comunicação local não representa, por si só,
-criptografia ponta a ponta.
-
-## Licença
-
-A licença do projeto ainda será definida.
+Criar, Ler e Testar, mantendo commits rastreáveis na `develop`. A `main`
+recebe somente alterações validadas.

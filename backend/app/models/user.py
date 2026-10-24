@@ -2,7 +2,7 @@ import secrets
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, DateTime, func
+from sqlalchemy import String, DateTime, Integer, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -34,9 +34,12 @@ class User(Base):
         nullable=False,
         index=True
     )
-    password_hash: Mapped[str] = mapped_column(
+    auth_user_id: Mapped[int | None] = mapped_column(
+        Integer, unique=True, index=True, nullable=True
+    )
+    password_hash: Mapped[str | None] = mapped_column(
         String(255),
-        nullable=False
+        nullable=True
     )
     friend_code: Mapped[str] = mapped_column(
         String(11),

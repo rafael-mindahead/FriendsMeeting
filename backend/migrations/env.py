@@ -1,4 +1,3 @@
-
 import os
 from logging.config import fileConfig
 
@@ -7,6 +6,7 @@ from sqlalchemy import create_engine, pool
 
 from app.Database.base import Base
 from app.models.user import User
+from app.models.friend_request import FriendRequest
 
 config = context.config
 

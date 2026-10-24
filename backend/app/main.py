@@ -3,6 +3,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from app.routers.auth import router as auth_router
+from app.routers.users import router as users_router
 
 from app.Database.database import get_db
 
@@ -12,6 +13,7 @@ app = FastAPI(
     version = "0.1.0"
 )
 app.include_router(auth_router)
+app.include_router(users_router)
 @app.get("/api/v1/health")
 def health_check():
     return {

@@ -219,3 +219,26 @@ def test_database_failure_rolls_back(context):
 
     assert response.status_code == 503
     db.rollback.assert_called_once()
+
+
+
+@pytest.mark.parametrize("length", [1001, 2000])
+def test_message_within_database_limit_is_accepted(context, length):
+    client, db, user = context
+    conversation = make_conversation(user.id, uuid4())
+    db.get.return_value = conversation
+
+    def simulate_refresh(obj):
+        obj.id = uuid4()
+        obj.created_at = datetime.now(timezone.utc)
+
+    db.refresh.side_effect = simulate_refresh
+
+    response = client.post(
+        f"/api/v1/conversations/{conversation.id}/messages",
+        json={"body": "A" * length},
+    )
+
+    assert response.status_code == 201, response.text
+    assert len(response.json()["body"]) == length
+    db.commit.assert_called_once()

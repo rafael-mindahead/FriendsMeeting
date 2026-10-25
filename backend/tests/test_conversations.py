@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from app.main import app
 from app.Database.database import get_db
@@ -151,3 +152,43 @@ def test_conversations_require_auth(context):
     response = client.get("/api/v1/conversations")
 
     assert response.status_code == 401
+
+
+
+def test_race_existing_conversation_recovers(context):
+    client, db, user = context
+    friend_id = uuid4()
+    existing = make_conversation(friend_id, user.id)
+
+    # Friendship, initial lookup, then lookup after unique violation.
+    db.scalar.side_effect = [uuid4(), None, existing]
+    db.commit.side_effect = IntegrityError(
+        "INSERT", {}, Exception("duplicate conversation")
+    )
+
+    response = client.post(
+        "/api/v1/conversations",
+        json={"friend_id": str(friend_id)},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == str(existing.id)
+    db.rollback.assert_called_once()
+
+
+def test_race_without_recoverable_conversation_returns_409(context):
+    client, db, user = context
+    friend_id = uuid4()
+
+    db.scalar.side_effect = [uuid4(), None, None]
+    db.commit.side_effect = IntegrityError(
+        "INSERT", {}, Exception("duplicate conversation")
+    )
+
+    response = client.post(
+        "/api/v1/conversations",
+        json={"friend_id": str(friend_id)},
+    )
+
+    assert response.status_code == 409
+    db.rollback.assert_called_once()

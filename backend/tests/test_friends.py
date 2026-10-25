@@ -172,3 +172,139 @@ def test_received_requests(context):
     assert response.status_code == 200
     assert len(response.json()) == 1
     assert response.json()[0]["status"] == "pending"
+
+
+
+
+def test_friend_code_not_found(context):
+    client, db, me = context
+    db.scalar.return_value = None
+
+    response = client.post(
+        "/api/v1/friends/requests",
+        json={"friend_code": "FM-ZZZZZZZZ"},
+    )
+
+    assert response.status_code == 404
+    db.commit.assert_not_called()
+
+
+def test_cannot_send_request_to_self(context):
+    client, db, me = context
+    db.scalar.return_value = me
+
+    response = client.post(
+        "/api/v1/friends/requests",
+        json={"friend_code": me.friend_code},
+    )
+
+    assert response.status_code == 400
+    db.commit.assert_not_called()
+
+
+def test_can_resend_rejected_request(context):
+    client, db, me = context
+
+    receiver = User(
+        id=uuid4(),
+        username="amigo",
+        email="amigo@example.com",
+        friend_code="FM-ASDFGH23",
+    )
+
+    existing = make_request(
+        me.id,
+        receiver.id,
+        status="rejected",
+    )
+
+    existing.responded_at = datetime.now(timezone.utc)
+    db.scalar.side_effect = [receiver, existing]
+
+    response = client.post(
+        "/api/v1/friends/requests",
+        json={"friend_code": receiver.friend_code},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["status"] == "pending"
+    assert existing.responded_at is None
+    db.commit.assert_called_once()
+
+
+def test_request_not_found(context):
+    client, db, me = context
+    db.scalar.return_value = None
+
+    response = client.patch(
+        f"/api/v1/friends/requests/{uuid4()}",
+        json={"action": "accept"},
+    )
+
+    assert response.status_code == 404
+    db.commit.assert_not_called()
+
+
+def test_invalid_friend_request_action(context):
+    client, db, me = context
+
+    response = client.patch(
+        f"/api/v1/friends/requests/{uuid4()}",
+        json={"action": "delete"},
+    )
+
+    assert response.status_code == 422
+    db.commit.assert_not_called()
+
+
+def test_friends_endpoint_requires_authentication(context):
+    client, db, me = context
+
+    app.dependency_overrides.pop(get_current_user, None)
+
+    response = client.get("/api/v1/friends")
+
+    assert response.status_code == 401
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_list_friends_both_directions(context, reverse):
+    client, db, me = context
+
+    friend = User(
+        id=uuid4(),
+        username="amigo",
+        email="amigo@example.com",
+        friend_code="FM-ASDFGH23",
+    )
+
+    if reverse:
+        sender_id = friend.id
+        receiver_id = me.id
+    else:
+        sender_id = me.id
+        receiver_id = friend.id
+
+    relation = make_request(
+        sender_id,
+        receiver_id,
+        status="accepted",
+    )
+
+    relations_result = MagicMock()
+    relations_result.all.return_value = [relation]
+
+    friends_result = MagicMock()
+    friends_result.all.return_value = [friend]
+
+    db.scalars.side_effect = [
+        relations_result,
+        friends_result,
+    ]
+
+    response = client.get("/api/v1/friends")
+
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert response.json()[0]["username"] == "amigo"
+    assert db.scalars.call_count == 2

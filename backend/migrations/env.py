@@ -8,6 +8,9 @@ from app.Database.base import Base
 from app.models.user import User
 from app.models.friend_request import FriendRequest
 
+from app.models.conversation import Conversation
+from app.models.message import Message
+
 config = context.config
 
 if config.config_file_name is not None:

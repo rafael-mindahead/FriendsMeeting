@@ -8,6 +8,8 @@ from app.routers.users import router as users_router
 from app.Database.database import get_db
 from app.routers.friends import router as friends_router
 
+from app.routers.conversations import router as conversations_router
+
 app = FastAPI(
     title = "FriendsMeeting API",
     description = "API de gerenciamento de usuarios e amizades",
@@ -16,6 +18,7 @@ app = FastAPI(
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(friends_router)
+app.include_router(conversations_router)
 
 @app.get("/api/v1/health")
 def health_check():

@@ -1,145 +1,155 @@
 # FriendsMeeting
 
-Chat local com ESP32 intermediando mensagens WebSocket entre notebooks.
-O núcleo FastAPI do FriendsMeeting administra **perfis (UUID), códigos de
-amizade e, futuramente, amizades e histórico**. Login, credenciais, tokens e
-sessões são responsabilidades do [authService](https://github.com/rafael-mindahead/authService).
+Plataforma de conversas privadas em desenvolvimento, com **FastAPI**, **PostgreSQL**, **Docker Compose** e autenticação delegada ao **authService**. O objetivo futuro é permitir comunicação em rede local via **WebSocket/ESP32**, inclusive em um cenário com o backend temporariamente indisponível.
 
-> Estado: **integração de autenticação em desenvolvimento**.
-> A interface de chat, as amizades e o firmware do ESP32 ainda não estão prontos.
+> **Estado atual:** o backend HTTP para cadastro/login, perfis, amizades, conversas e mensagens está implementado. **WebSocket, firmware do ESP32 e interface web ainda não estão implementados.** Não confunda as APIs HTTP existentes com um chat em tempo real pronto.
+
+## Funcionalidades disponíveis
+
+- Cadastro, login, refresh, logout e recuperação de senha por proxy para o authService.
+- Perfil local UUID, associado ao identificador inteiro do authService por `auth_user_id`.
+- Código de amizade único no formato `FM-XXXXXXXX`, solicitações, aceite, recusa, reenvio e listagem de amigos.
+- Conversa privada única por par de amigos; criação idempotente (201 nova / 200 existente).
+- Envio de mensagens textuais de **1 a 2.000 caracteres**, rejeitando conteúdo só com espaços.
+- Histórico persistente, ordenado por data/ID decrescentes, com `limit` (1–100, padrão 20) e `offset` (padrão 0).
+- Autorização por participante: usuários externos não conseguem consultar nem enviar mensagens em conversas alheias.
+- Testes unitários e testes de integração em **PostgreSQL separado**, com CI no GitHub Actions.
 
 ## Arquitetura
 
 ```text
-Browser --HTTP--> FriendsMeeting API --> FriendsMeeting PostgreSQL (profiles)
-                    |  |
-                    |  +--HTTP (GET /auth/me)--> authService API
-                    |                           |--> Auth PostgreSQL (accounts)
-                    |                           +--> Redis (sessions/refresh)
-Browser <-------- WebSocket ------------ ESP32 (planejado)
+Navegador / cliente HTTP
+       |
+       v
+FriendsMeeting FastAPI (:8000) ----HTTP interno----> authService FastAPI (:8001 no host)
+       |                                            |               |
+       v                                            v               v
+PostgreSQL FriendsMeeting                  PostgreSQL auth       Redis auth
+(users, friend_requests,
+ conversations, messages)
+
+[Futuro] Navegadores <-- WebSocket local --> ESP32 (sem API Python ativa)
 ```
 
-IDs no authService são **inteiros**. Cada perfil no FriendsMeeting tem um
-**UUID local** e `auth_user_id` (inteiro único e opcional para contas antigas).
-`friend_code` mantém o formato `FM-XXXXXXXX`. Tokens JWT não são
-decodificados pelo FriendsMeeting: a validação é delegada ao authService
-por meio de `/auth/me`.
+O FriendsMeeting **não valida JWT por conta própria**: encaminha o token a `GET /auth/me` do authService e provisiona o perfil local com UUID. Credenciais e sessões pertencem ao authService. Perfis legados não são vinculados silenciosamente apenas por e-mail.
 
-Os perfis existentes do antigo cadastro local são preservados, inclusive os
-respectivos UUIDs. **Não associamos automaticamente contas pelo e-mail.**
-Perfis legados sem `auth_user_id` podem exigir uma migração assistida.
+O projeto possui **um único** `compose.yaml` para as duas APIs, dois bancos PostgreSQL e o Redis. Não é preciso clonar o authService separadamente para rodar esta versão; seu código está em `services/auth-service/`.
 
-## Desenvolvimento local com Docker Desktop (Mac)
+Detalhes adicionais: [arquitetura e contratos HTTP](docs/ARCHITECTURE.md).
 
-Você precisa ter **ambos os repositórios** clonados:
+## Preparação local (macOS / Linux)
+
+Requisitos: Docker Desktop/Engine, Docker Compose e Git. Para os testes locais fora dos contêineres, Python 3.12+.
 
 ```bash
-git clone https://github.com/rafael-mindahead/authService.git
 git clone https://github.com/rafael-mindahead/FriendsMeeting.git
-```
-
-### 1. Inicie o authService
-
-```bash
-cd authService
+cd FriendsMeeting
 git switch develop
-git pull --ff-only origin develop
 cp .env.example .env
-# Edite as credenciais. Em SECRET_KEY, cole a saída de: openssl rand -hex 32
-docker compose up -d --build
-curl -i http://localhost:8001/health
 ```
 
-O authService executa migrações com Alembic na inicialização da API.
-A porta 8001 é usada para evitar conflito com o FriendsMeeting na 8000.
-Mantenha o serviço restrito a um ambiente local de desenvolvimento.
+Edite `.env` definindo **POSTGRES_USER, POSTGRES_PASSWORD e POSTGRES_DB**. Para a autenticação, `AUTH_POSTGRES_*` pode ser definido separadamente; em desenvolvimento local o Compose possui padrões. Uma chave `AUTH_SECRET_KEY` explícita é recomendada para ambientes persistentes; sem ela, o serviço pode gerar e persistir uma no volume `auth_config`.
 
-### 2. Inicie o FriendsMeeting
+**Não sobrescreva** seu `.env` existente nem remova volumes de bancos já configurados.
 
 ```bash
-cd ../FriendsMeeting
-git switch develop
-git pull --ff-only origin develop
-# Se ainda não existir: cp .env.example .env
-# Preserve as credenciais POSTGRES atuais (não remova o volume).
-# No Docker Desktop, AUTH_SERVICE_URL=http://host.docker.internal:8001
 docker compose up -d --build
-docker compose exec api alembic upgrade head
-curl -i http://localhost:8000/api/v1/health
+docker compose ps
+
+curl -f http://localhost:8000/api/v1/health
+curl -f http://localhost:8001/health
 ```
 
-Nunca use `docker compose down -v` para essa migração: removeria os dados.
+- FriendsMeeting Swagger: <http://localhost:8000/docs>
+- authService Swagger: <http://localhost:8001/docs>
+- As migrations são aplicadas no início da API (`alembic upgrade head`).
+- O authService pode levar alguns segundos para ficar saudável no primeiro início.
 
-### 3. Teste o fluxo (Swagger: http://localhost:8000/docs)
+**Nunca use `docker compose down -v`** em um ambiente com dados que deseja preservar: o comando apaga os volumes do Compose.
+
+## Exemplo do fluxo HTTP
+
+### 1. Cadastro e login
 
 ```bash
 curl -i -X POST http://localhost:8000/api/v1/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"username":"amigo_01","email":"amigo01@example.com","password":"SenhaDeTeste2026!"}'
-```
+  -d '{"username":"alice_01","email":"alice01@example.com","password":"SenhaDeTeste2026!"}'
 
-O FriendsMeeting converte `username` para o campo `name` do authService
-e grava um perfil local sem armazenar senha ou hash novo.
-
-```bash
 curl -s -X POST http://localhost:8000/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"amigo01@example.com","password":"SenhaDeTeste2026!"}'
+  -d '{"email":"alice01@example.com","password":"SenhaDeTeste2026!"}'
 ```
 
-Use `access_token` retornado:
+Use o `access_token` do login nas chamadas autenticadas:
 
 ```bash
-curl -i http://localhost:8000/api/v1/users/me \
-  -H "Authorization: Bearer COLE_SEU_ACCESS_TOKEN_AQUI"
+curl -H "Authorization: Bearer SEU_TOKEN" \
+  http://localhost:8000/api/v1/users/me
 ```
 
-Rotas proxy disponíveis: `/api/v1/auth/register`, `login`, `refresh`,
-`logout`, `forgot-password`, `reset-password`; perfil em
-`GET /api/v1/users/me`. O serviço de autenticação deve estar acessível.
+### 2. Amizades, conversa e mensagens
 
-Se o cadastro remoto funcionar mas o banco do FriendsMeeting falhar,
-o **próximo login** tenta provisionar o perfil novamente. Uma conta legada
-com e-mail idêntico **não será vinculada automaticamente**; trate o conflito
-explicitamente antes de continuar.
+- `POST /api/v1/friends/requests` com `{"friend_code":"FM-XXXXXXXX"}`.
+- `GET /api/v1/friends/requests` lista solicitações recebidas pendentes.
+- `PATCH /api/v1/friends/requests/{id}` com `{"action":"accept"}` ou `{"action":"reject"}`.
+- `GET /api/v1/friends` lista amigos aceitos.
+- `POST /api/v1/conversations` com `{"friend_id":"UUID_DO_AMIGO"}`.
+- `GET /api/v1/conversations` lista conversas próprias.
+- `GET /api/v1/conversations/{id}` consulta uma conversa própria.
+- `POST /api/v1/conversations/{id}/messages` com `{"body":"Olá!"}`.
+- `GET /api/v1/conversations/{id}/messages?limit=20&offset=0` consulta o histórico.
 
-## Testes
+Toda rota de amizades, conversas e mensagens exige `Authorization: Bearer`, validado pelo authService. A mensagem não é enviada instantaneamente ao outro navegador ainda; o histórico é consultado via HTTP.
 
-No FriendsMeeting:
+## Testes: mocks e PostgreSQL real
+
+A execução completa usa o banco `friendsmeeting_test` na porta local **5433**, isolado do banco principal. Os testes de integração abrem transações que são revertidas ao final de cada caso. Não execute as migrations de testes apontando para o banco principal.
+
+Na raiz do repositório:
 
 ```bash
+docker compose -p friendsmeeting-tests -f compose.test.yaml up -d --wait
 cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements-dev.txt
-python -m pytest tests/ -v
 ```
 
-A suíte de integração HTTP usa mocks e **não exige authService rodando**.
-O GitHub Actions repete os testes na branch `develop` e em pull requests.
+Aplique as migrations no banco de testes:
 
-**Atenção ao authService:** sua suíte de testes apaga e recria tabelas.
-Execute-a somente com `.env.test`, apontando a banco dedicado com sufixo
-`_test` e Redis DB `/1`.
+```bash
+export FRIENDSMEETING_TEST_DATABASE_URL="postgresql+psycopg://test:test@127.0.0.1:5433/friendsmeeting_test"
+DATABASE_URL="$FRIENDSMEETING_TEST_DATABASE_URL" python -m alembic upgrade head
+DATABASE_URL="$FRIENDSMEETING_TEST_DATABASE_URL" python -m pytest tests/ -v
+```
+
+Para executar apenas os testes com mocks:
+
+```bash
+python -m pytest tests/test_messages.py tests/test_conversations.py -v
+```
+
+O [workflow de CI](.github/workflows/backend-tests.yml) provisiona o PostgreSQL temporário, aplica migrations e executa a suíte completa a cada push em `develop`/`main` e em pull requests. A suíte do authService vendorizado é independente; consulte `services/auth-service/README.md` para o ambiente específico de testes desse serviço.
 
 ## Próximas entregas
 
-- [x] Docker, PostgreSQL, SQLAlchemy, Alembic e tabela de perfis
-- [x] Cliente HTTP para authService, rotas proxy e vínculo por `auth_user_id`
-- [ ] Validar o fluxo completo entre os dois projetos no Mac
-- [ ] Solicitações de amizade e notificações de eventos
-- [ ] Persistência de mensagens e histórico
-- [ ] Firmware ESP32 WebSocket e testes via hotspot do celular
-- [ ] Interface web de login, amigos e chat
+- [x] Docker Compose unificado, PostgreSQL, Redis e migrations
+- [x] Autenticação delegada, perfis e códigos de amizade
+- [x] Solicitações de amizade, aceite, recusa e listagem
+- [x] Conversas privadas e histórico persistente
+- [x] Testes automatizados de API e integração PostgreSQL
+- [ ] WebSocket autenticado, presença e notificações em tempo real
+- [ ] Integração ESP32 e testes entre dois notebooks em rede local
+- [ ] Interface web responsiva
+- [ ] Estratégia de sincronização offline, robustez e observabilidade
 
-## Segurança
+## Segurança e cuidados
 
-O authService mantém credenciais, JWT e refresh tokens. O FriendsMeeting não
-deve compartilhar seu `SECRET_KEY` nem confiar em IDs enviados pelo navegador.
-`.env` nunca entra no Git. Antes de disponibilizar o sistema fora da rede
-controlada, configurar HTTPS/WSS, políticas CORS, limites de taxa e observabilidade.
+Nunca versione `.env`, credenciais ou `AUTH_SECRET_KEY`. O Compose é direcionado a desenvolvimento local; antes de expor o serviço publicamente, configurar TLS/HTTPS/WSS, CORS restrito, limites de taxa, logs de auditoria e política de retenção. `HTTP 404` oculta a existência de conversas de outros usuários. Os testes automatizados não substituem uma auditoria de segurança externa.
 
-### Método CRT
+### Método CRT e branches
 
-Criar, Ler e Testar, mantendo commits rastreáveis na `develop`. A `main`
-recebe somente alterações validadas.
+Desenvolvimento incremental em `develop`: **Criar, Ler e Testar**; a `main` recebe marcos validados, preservando o histórico. A branch de trabalho contínuo continua sendo `develop`.
+
+**Licenciamento:** ainda não há arquivo de licença declarado neste repositório; antes de redistribuir ou receber contribuições externas, definir uma licença e registrar atribuições.

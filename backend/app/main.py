@@ -16,6 +16,7 @@ app = FastAPI(
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(friends_router)
+
 @app.get("/api/v1/health")
 def health_check():
     return {

@@ -53,10 +53,10 @@ class FriendRequest(Base):
         ),
         CheckConstraint(
             "status IN ('pending', 'accepted', 'rejected')",
-            name="ck_friend_requests_status_valid",
+            name="ck_friend_requests_status",
         ),
         Index(
-            "uq_friend_requests_sender_receiver",
+            "uq_friend_requests_pair",
             func.least(sender_id, receiver_id),
             func.greatest(sender_id, receiver_id),
             unique=True,

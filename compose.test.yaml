@@ -1,0 +1,18 @@
+
+services:
+  db-test:
+    image: postgres:16-alpine
+
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: friendsmeeting_test
+
+    ports:
+      - "127.0.0.1:5433:5432"
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d friendsmeeting_test"]
+      interval: 5s
+      timeout: 3s
+      retries: 10

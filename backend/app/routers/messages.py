@@ -19,7 +19,7 @@ router = APIRouter(
     tags=["Messages"],
 )
 class MessageCreate(BaseModel):
-    body: str = Field(min_length=1, max_length=1000)
+    body: str = Field(min_length=1, max_length=2000)
 
     @field_validator("body")
     @classmethod
@@ -62,7 +62,7 @@ def get_authorized_conversation(
     response_model = ConversationPublic,
 )
 def get_conversation(
-    conversation_id: UUID,\
+    conversation_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
  ):

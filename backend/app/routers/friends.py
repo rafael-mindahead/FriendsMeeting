@@ -1,5 +1,5 @@
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal
 from uuid import UUID
 
@@ -13,8 +13,6 @@ from app.Database.database import get_db
 from app.dependencies.current_user import get_current_user
 from app.models.friend_request import FriendRequest
 from app.models.user import User
-
-from datetime import datetime, timezone
 
 router = APIRouter(
     prefix="/api/v1/friends",
@@ -146,9 +144,6 @@ def send_friend_request(
         ) from exc
 
     return request
-class FriendRequestResponse(BaseModel):
-    action: Literal["accept", "reject"]
-
 class FriendPublic(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -171,8 +166,6 @@ def list_received_requests(
         .where(FriendRequest.receiver_id == current_user.id, FriendRequest.status == "pending",)
         .order_by(FriendRequest.created_at.desc())
     ).all()
-
-    return requests
 
 class FriendRequestDecision(BaseModel):
     action: Literal["accept", "reject"]

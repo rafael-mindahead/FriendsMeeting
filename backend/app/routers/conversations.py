@@ -60,9 +60,9 @@ def create_conversation(
     if data.friend_id == current_user.id:
         raise HTTPException(
             status_code=400,
-            detail="Nao e permetido conversar com voce mesmo",
+            detail="Nao e permitido conversar consigo mesmo",
         )
-    friendship =db.scalar(
+    friendship = db.scalar(
         select(FriendRequest).where(
             FriendRequest.status == "accepted",
             or_(
@@ -97,7 +97,7 @@ def create_conversation(
     try:
         db.commit()
         db.refresh(conversation)
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
 
         #outra requisicao pode ter criado a conversa entre o mesmo par de usuarios

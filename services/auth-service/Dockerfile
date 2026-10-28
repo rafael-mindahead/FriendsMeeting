@@ -8,4 +8,4 @@ COPY alembic.ini ./
 COPY migrations/ ./migrations/
 COPY entrypoint.sh /usr/local/bin/auth-entrypoint.sh
 EXPOSE 8000
-ENTRYPOINT ["sh", "/usr/local/bin/auth-entrypoint.sh"]
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/auth-entrypoint.sh"]

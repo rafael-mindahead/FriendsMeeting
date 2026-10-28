@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # Mantem a chave JWT estavel entre recriacoes do container sem exigir
 # que o usuario configure outro .env apenas para uma demonstracao local.
 set -eu

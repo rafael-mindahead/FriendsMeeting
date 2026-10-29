@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Criar conta | FriendsMeeting</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+  <main>
+    <h1>Criar conta</h1>
+
+    <form id="register-form">
+      <label for="username">Nome de usuário</label>
+      <input
+        id="username"
+        name="username"
+        type="text"
+        minlength="3"
+        maxlength="32"
+        pattern="[A-Za-z0-9_]+"
+        autocomplete="username"
+        required
+      >
+
+      <label for="email">E-mail</label>
+      <input
+        id="email"
+        name="email"
+        type="email"
+        autocomplete="email"
+        required
+      >
+
+      <label for="password">Senha</label>
+      <input
+        id="password"
+        name="password"
+        type="password"
+        minlength="8"
+        maxlength="128"
+        autocomplete="new-password"
+        required
+      >
+
+      <button type="submit">Cadastrar</button>
+      <p id="form-message" role="status" aria-live="polite"></p>
+    </form>
+
+    <p>Já tem conta? <a href="login.html">Faça login</a></p>
+  </main>
+
+  <script type="module" src="../js/pages/register.js"></script>
+</body>
+</html>

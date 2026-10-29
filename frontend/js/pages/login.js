@@ -37,8 +37,11 @@ form.addEventListener("submit", async (event) => {
     
     sessionStorage.setItem("access_token", tokens.access_token);
     sessionStorage.setItem("refresh_token", tokens.refresh_token);
+
+    window.location.href = "./panel.html";
     
     message.textContent = "Login realizado!";
+
   } catch (error) {
     message.textContent =
     error instanceof Error ? error.message : "Não foi possivel fazer o login.";

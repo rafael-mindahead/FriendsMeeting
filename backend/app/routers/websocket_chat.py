@@ -150,7 +150,11 @@ async def conversation_websocket(
             await websocket.close(code=code)
             return
 
-        manager.add(conversation_id, websocket)
+        newly_online = manager.add(
+            conversation_id, 
+            websocket,
+            user_id,
+            )
         registered = True
 
         await websocket.send_json({
@@ -158,6 +162,13 @@ async def conversation_websocket(
             "conversation_id": str(conversation_id),
             "user_id": str(user_id),
         })
+
+        if newly_online:
+            await manager.notify_presence(
+                conversation_id,
+                user_id,
+                True,
+            )
 
         while True:
             event = await websocket.receive_json()
@@ -173,6 +184,17 @@ async def conversation_websocket(
 
             if event_type == "ping":
                 await websocket.send_json({"type": "pong"})
+                continue
+
+            if event_type == "subscribe_presence":
+                manager.subscribe(
+                    conversation_id,
+                    websocket,
+                )
+                await websocket.send_json({
+                    "type": "presence_snapshot",
+                    "online_user_ids": manager.online_users(conversation_id),
+                })
                 continue
 
             if event_type == "send_message":
@@ -227,4 +249,14 @@ async def conversation_websocket(
         await websocket.close(code=1003)
     finally:
         if registered:
-            manager.remove(conversation_id, websocket)
+           removed_user, became_offline = manager.remove(
+               conversation_id,
+               websocket,
+           )
+           if became_offline:
+               await manager.notify_presence(
+                   conversation_id,
+                   removed_user,
+                   False,
+               )
+

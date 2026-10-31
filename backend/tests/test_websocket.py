@@ -300,3 +300,238 @@ def test_ws_database_failure(context, monkeypatch):
         ws.send_json({"type": "ping"})
         assert ws.receive_json() == {"type": "pong"}
 
+
+
+
+
+
+def test_presence_tracks_multiple_tabs():
+    connections = ConnectionManager()
+    room = uuid4()
+    user = uuid4()
+    tab1 = object()
+    tab2 = object()
+
+    assert connections.add(room, tab1, user) is True
+    assert connections.add(room, tab2, user) is False
+
+    assert connections.active(room) == 2
+    assert connections.online_users(room) == [str(user)]
+
+    assert connections.remove(room, tab1) == (
+        user, False
+    )
+    assert connections.is_online(room, user)
+
+    assert connections.remove(room, tab2) == (
+        user, True
+    )
+    assert not connections.is_online(room, user)
+
+
+def test_presence_is_isolated_between_rooms():
+    connections = ConnectionManager()
+    room_a = uuid4()
+    room_b = uuid4()
+    alice = uuid4()
+    bob = uuid4()
+
+    connections.add(room_a, object(), alice)
+    connections.add(room_b, object(), bob)
+
+    assert connections.online_users(room_a) == [
+        str(alice)
+    ]
+    assert connections.online_users(room_b) == [
+        str(bob)
+    ]
+    assert not connections.is_online(room_a, bob)
+
+
+def test_websocket_presence_snapshot(context):
+    client, conversation_id, user_id = context
+
+    path = f"/api/v1/conversations/{conversation_id}/ws"
+
+    with client.websocket_connect(path) as ws:
+        ws.send_json({
+            "type": "auth",
+            "token": "valid-token",
+        })
+        assert ws.receive_json()["type"] == "ready"
+
+        ws.send_json({
+            "type": "subscribe_presence",
+        })
+
+        snapshot = ws.receive_json()
+
+        assert snapshot["type"] == "presence_snapshot"
+        assert snapshot["online_user_ids"] == [
+            str(user_id)
+        ]
+
+
+def test_websocket_notifies_online_and_offline(
+    context, monkeypatch
+):
+    client, conversation_id, alice_id = context
+    bob_id = uuid4()
+
+    def access(token, requested_room):
+        assert requested_room == conversation_id
+        return {
+            "valid-token": alice_id,
+            "bob-token": bob_id,
+        }[token]
+
+    monkeypatch.setattr(
+        websocket_chat, "check_ws_access", access
+    )
+
+    path = f"/api/v1/conversations/{conversation_id}/ws"
+
+    with client.websocket_connect(path) as alice:
+        alice.send_json({
+            "type": "auth",
+            "token": "valid-token",
+        })
+        assert alice.receive_json()["type"] == "ready"
+
+        alice.send_json({"type": "subscribe_presence"})
+        assert alice.receive_json()["type"] == (
+            "presence_snapshot"
+        )
+
+        with client.websocket_connect(path) as bob:
+            bob.send_json({
+                "type": "auth",
+                "token": "bob-token",
+            })
+            assert bob.receive_json()["type"] == "ready"
+
+            assert alice.receive_json() == {
+                "type": "presence",
+                "user_id": str(bob_id),
+                "online": True,
+            }
+
+        assert alice.receive_json() == {
+            "type": "presence",
+            "user_id": str(bob_id),
+            "online": False,
+        }
+
+
+def test_multiple_tabs_do_not_send_false_offline(
+    context, monkeypatch
+):
+    client, conversation_id, alice_id = context
+    bob_id = uuid4()
+
+    def access(token, requested_room):
+        return {
+            "valid-token": alice_id,
+            "bob-token": bob_id,
+        }[token]
+
+    monkeypatch.setattr(
+        websocket_chat, "check_ws_access", access
+    )
+
+    path = f"/api/v1/conversations/{conversation_id}/ws"
+
+    with client.websocket_connect(path) as alice:
+        alice.send_json({
+            "type": "auth",
+            "token": "valid-token",
+        })
+        alice.receive_json()
+
+        alice.send_json({"type": "subscribe_presence"})
+        alice.receive_json()
+
+        with client.websocket_connect(path) as bob1:
+            bob1.send_json({
+                "type": "auth",
+                "token": "bob-token",
+            })
+            bob1.receive_json()
+
+            assert alice.receive_json()["online"] is True
+
+            with client.websocket_connect(path) as bob2:
+                bob2.send_json({
+                    "type": "auth",
+                    "token": "bob-token",
+                })
+                bob2.receive_json()
+
+            # Fechar bob2 nao deixa bob offline.
+            assert manager.is_online(
+                conversation_id, bob_id
+            )
+
+            # Nenhum evento extra deve vir antes do pong.
+            alice.send_json({"type": "ping"})
+            assert alice.receive_json() == {
+                "type": "pong"
+            }
+
+        # Somente apos fechar bob1, a ultima aba.
+        assert alice.receive_json() == {
+            "type": "presence",
+            "user_id": str(bob_id),
+            "online": False,
+        }
+
+
+def test_late_subscriber_sees_existing_users(
+    context, monkeypatch
+):
+    client, conversation_id, alice_id = context
+    bob_id = uuid4()
+
+    def access(token, requested_room):
+        return {
+            "valid-token": alice_id,
+            "bob-token": bob_id,
+        }[token]
+
+    monkeypatch.setattr(
+        websocket_chat, "check_ws_access", access
+    )
+
+    path = f"/api/v1/conversations/{conversation_id}/ws"
+
+    with client.websocket_connect(path) as bob:
+        bob.send_json({
+            "type": "auth",
+            "token": "bob-token",
+        })
+        assert bob.receive_json()["type"] == "ready"
+
+        with client.websocket_connect(path) as alice:
+            alice.send_json({
+                "type": "auth",
+                "token": "valid-token",
+            })
+            assert alice.receive_json()["type"] == "ready"
+
+            alice.send_json({
+                "type": "subscribe_presence",
+            })
+
+            snapshot = alice.receive_json()
+
+            assert snapshot["type"] == "presence_snapshot"
+            assert set(snapshot["online_user_ids"]) == {
+                str(alice_id),
+                str(bob_id),
+            }
+
+            # Bob nao assinou presença: segue recebendo
+            # apenas os eventos do protocolo que solicitar.
+            bob.send_json({"type": "ping"})
+            assert bob.receive_json() == {"type": "pong"}
+

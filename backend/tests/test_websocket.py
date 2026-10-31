@@ -10,6 +10,7 @@ from starlette.websockets import WebSocketDisconnect
 from app.main import app
 from app.routers import websocket_chat
 from app.realtime.manager import ConnectionManager, manager
+from datetime import datetime, timezone
 
 
 @pytest.fixture
@@ -166,3 +167,136 @@ def test_connection_manager_isolates_rooms():
 
     assert connections.active(room_a) == 0
     assert connections.active(room_b) == 1
+
+
+
+
+
+
+
+
+def test_two_users_exchange_messages(context, monkeypatch):
+    client, conversation_id, alice_id = context
+    bob_id = uuid4()
+    persisted = []
+
+    def fake_access(token, requested_conversation):
+        assert requested_conversation == conversation_id
+
+        if token == "alice":
+            return alice_id
+        if token == "bob":
+            return bob_id
+
+        raise HTTPException(401, "Token invalido")
+
+    def fake_persist(requested_conversation, sender_id, body):
+        persisted.append(body)
+
+        return {
+            "id": str(uuid4()),
+            "conversation_id": str(requested_conversation),
+            "sender_id": str(sender_id),
+            "body": body,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    monkeypatch.setattr(
+        websocket_chat, "check_ws_access", fake_access
+    )
+    monkeypatch.setattr(
+        websocket_chat, "persist_ws_message", fake_persist
+    )
+
+    url = f"/api/v1/conversations/{conversation_id}/ws"
+
+    with client.websocket_connect(url) as alice:
+        alice.send_json({"type": "auth", "token": "alice"})
+        assert alice.receive_json()["type"] == "ready"
+
+        with client.websocket_connect(url) as bob:
+            bob.send_json({"type": "auth", "token": "bob"})
+            assert bob.receive_json()["type"] == "ready"
+
+            assert manager.active(conversation_id) == 2
+
+            alice.send_json({
+                "type": "send_message",
+                "body": "Ola, Bob!",
+                "sender_id": str(bob_id),
+            })
+
+            alice_event = alice.receive_json()
+            bob_event = bob.receive_json()
+
+            assert alice_event == bob_event
+            assert bob_event["type"] == "message"
+            assert bob_event["data"]["body"] == "Ola, Bob!"
+            assert bob_event["data"]["sender_id"] == str(alice_id)
+
+    assert persisted == ["Ola, Bob!"]
+    assert manager.active(conversation_id) == 0
+
+
+@pytest.mark.parametrize("body", ["   ", "A" * 2001])
+def test_ws_rejects_invalid_message(context, monkeypatch, body):
+    client, conversation_id, user_id = context
+
+    def unexpected_persist(*args):
+        raise AssertionError("Mensagem invalida foi persistida")
+
+    monkeypatch.setattr(
+        websocket_chat,
+        "persist_ws_message",
+        unexpected_persist,
+    )
+
+    with client.websocket_connect(
+        f"/api/v1/conversations/{conversation_id}/ws"
+    ) as ws:
+        ws.send_json({"type": "auth", "token": "valid-token"})
+        assert ws.receive_json()["type"] == "ready"
+
+        ws.send_json({
+            "type": "send_message",
+            "body": body,
+        })
+
+        response = ws.receive_json()
+
+        assert response["type"] == "error"
+        assert response["code"] == "invalid_message"
+
+
+def test_ws_database_failure(context, monkeypatch):
+    client, conversation_id, user_id = context
+
+    def failing_persist(*args):
+        raise HTTPException(503, "Banco indisponivel")
+
+    monkeypatch.setattr(
+        websocket_chat,
+        "persist_ws_message",
+        failing_persist,
+    )
+
+    with client.websocket_connect(
+        f"/api/v1/conversations/{conversation_id}/ws"
+    ) as ws:
+        ws.send_json({"type": "auth", "token": "valid-token"})
+        assert ws.receive_json()["type"] == "ready"
+
+        ws.send_json({
+            "type": "send_message",
+            "body": "Teste de falha",
+        })
+
+        response = ws.receive_json()
+
+        assert response["type"] == "error"
+        assert response["code"] == "message_not_saved"
+        assert response["status"] == 503
+
+        ws.send_json({"type": "ping"})
+        assert ws.receive_json() == {"type": "pong"}
+

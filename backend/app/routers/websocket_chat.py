@@ -1,0 +1,385 @@
+import asyncio
+import os
+from uuid import UUID
+
+import httpx
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from pydantic import ValidationError, BaseModel, Field
+from sqlalchemy.exc import SQLAlchemyError
+from starlette.concurrency import run_in_threadpool
+from sqlalchemy import and_, or_, select
+
+from app.Database.database import SessionLocal
+from app.clients.auth_service import AuthServiceClient
+from app.models.conversation import Conversation
+from app.models.message import Message
+from app.realtime.manager import manager
+from app.routers.messages import MessageCreate, MessagePublic
+from app.services.profiles import ensure_profile
+
+
+router = APIRouter(tags=["WebSocket"])
+
+class MessageSyncRequest(BaseModel):
+    after_id: UUID
+    limit: int = Field(default=50, ge=1, le=100)
+
+
+def check_ws_access(token: str, conversation_id: UUID) -> UUID:
+    base_url = os.getenv(
+        "AUTH_SERVICE_URL",
+        "http://host.docker.internal:8001",
+    )
+
+    with httpx.Client(
+        base_url=base_url,
+        timeout=5.0,
+        trust_env=False,
+    ) as client:
+        auth = AuthServiceClient(client)
+
+        identity = auth.call(
+            "GET",
+            "/auth/me",
+            token=token,
+        )
+
+    with SessionLocal() as db:
+        user = ensure_profile(db, identity)
+        conversation = db.get(Conversation, conversation_id)
+
+        if (
+            conversation is None
+            or user.id not in (
+                conversation.user_a_id,
+                conversation.user_b_id,
+            )
+        ):
+            raise HTTPException(
+                status_code=404,
+                detail="Conversa nao encontrada",
+            )
+
+        return user.id
+
+
+def persist_ws_message(
+    conversation_id: UUID,
+    sender_id: UUID,
+    body: str,
+) -> dict:
+    with SessionLocal() as db:
+        try:
+            conversation = db.get(
+                Conversation,
+                conversation_id,
+            )
+
+            if (
+                conversation is None
+                or sender_id not in (
+                    conversation.user_a_id,
+                    conversation.user_b_id,
+                )
+            ):
+                raise HTTPException(
+                    status_code=404,
+                    detail="Conversa nao encontrada",
+                )
+
+            message = Message(
+                conversation_id=conversation_id,
+                sender_id=sender_id,
+                body=body,
+            )
+
+            db.add(message)
+            db.commit()
+            db.refresh(message)
+
+            return MessagePublic.model_validate(
+                message
+            ).model_dump(mode="json")
+
+        except HTTPException:
+            raise
+
+        except SQLAlchemyError as exc:
+            db.rollback()
+            raise HTTPException(
+                status_code=503,
+                detail="Nao foi possivel salvar a mensagem",
+            ) from exc
+
+
+
+
+def load_missed_messages(
+    conversation_id: UUID,
+    user_id: UUID,
+    after_id: UUID,
+    limit: int,
+)-> dict:
+    try:
+        with SessionLocal() as db:
+            conversation = db.get(
+                Conversation,
+                conversation_id
+            )
+            if (conversation is None or user_id not in( conversation.user_a_id, conversation.user_b_id)):
+                raise HTTPException(
+                    status_code = 404,
+                    detail = "conversa nao encontrada"
+                )
+            # O cursor precisa pertencer a esta conversa
+            cursor = db.scalar(
+                select(Message).where(
+                    Message.id == after_id,
+                    Message.conversation_id == conversation_id,
+                )
+            )
+            if cursor is None:
+                raise HTTPException(
+                    status_code = 409,
+                    detail = "Cursor invalido ou expirado",
+                )
+            query = (
+                select(Message).where(
+                    Message.conversation_id == conversation_id,
+                    or_(
+                        Message.created_at > cursor.created_at,
+                        and_(
+                            Message.created_at == cursor.created_at,
+                            Message.id > cursor.id,
+                        ),
+                    ),
+                )
+                .order_by(
+                    Message.created_at.asc(),
+                    Message.id.asc(),
+                )
+                .limit(limit + 1)
+            )
+            rows = db.scalars(query).all()
+            has_more = len(rows) > limit
+            messages = [
+                MessagePublic.model_validate(message).model_dump(mode="json")
+                for message in rows[:limit]
+            ]
+            next_after_id = (messages[-1]["id"] if messages else str(after_id))
+            return {
+                "messages": messages,
+                "has_more": has_more,
+                "next_after_id": next_after_id,
+            }
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Erro ao recuperar mensagens",
+        ) from exc
+
+
+
+@router.websocket("/api/v1/conversations/{conversation_id}/ws")
+async def conversation_websocket(
+    websocket: WebSocket,
+    conversation_id: UUID,
+):
+    await websocket.accept()
+    registered = False
+
+    try:
+        try:
+            first = await asyncio.wait_for(
+                websocket.receive_json(),
+                timeout=10,
+            )
+        except asyncio.TimeoutError:
+            await websocket.close(code=1008)
+            return
+
+        if not isinstance(first, dict):
+            await websocket.close(code=1008)
+            return
+
+        token = first.get("token")
+
+        if (
+            first.get("type") != "auth"
+            or not isinstance(token, str)
+            or not 0 < len(token) <= 4096
+        ):
+            await websocket.close(code=1008)
+            return
+
+        try:
+            user_id = await run_in_threadpool(
+                check_ws_access,
+                token,
+                conversation_id,
+            )
+        except HTTPException as exc:
+            code = 1013 if exc.status_code >= 500 else 1008
+            await websocket.close(code=code)
+            return
+
+        newly_online = manager.add(
+            conversation_id, 
+            websocket,
+            user_id,
+            )
+        registered = True
+
+        await websocket.send_json({
+            "type": "ready",
+            "conversation_id": str(conversation_id),
+            "user_id": str(user_id),
+        })
+
+        if newly_online:
+            await manager.notify_presence(
+                conversation_id,
+                user_id,
+                True,
+            )
+
+
+        
+        while True:
+            event = await websocket.receive_json()
+
+            if not isinstance(event, dict):
+                await websocket.send_json({
+                    "type": "error",
+                    "code": "invalid_event",
+                })
+                continue
+
+            event_type = event.get("type")
+
+            # HEARTBEAT
+            if event_type == "ping":
+                await websocket.send_json({
+                    "type": "pong",
+                })
+                continue
+
+            # PRESENCA ONLINE
+            if event_type == "subscribe_presence":
+                manager.subscribe(
+                    conversation_id,
+                    websocket,
+                )
+
+                await websocket.send_json({
+                    "type": "presence_snapshot",
+                    "online_user_ids": manager.online_users(
+                        conversation_id
+                    ),
+                })
+                continue
+
+            # RECUPERACAO DE MENSAGENS
+            if event_type == "sync_messages":
+                try:
+                    sync_request = MessageSyncRequest.model_validate(
+                        event
+                    )
+                except ValidationError:
+                    await websocket.send_json({
+                        "type": "error",
+                        "code": "invalid_sync",
+                    })
+                    continue
+
+                try:
+                    result = await run_in_threadpool(
+                        load_missed_messages,
+                        conversation_id,
+                        user_id,
+                        sync_request.after_id,
+                        sync_request.limit,
+                    )
+                except HTTPException as exc:
+                    await websocket.send_json({
+                        "type": "error",
+                        "code": "sync_failed",
+                        "status": exc.status_code,
+                    })
+
+                    if exc.status_code == 404:
+                        await websocket.close(code=1008)
+                        break
+
+                    continue
+
+                await websocket.send_json({
+                    "type": "messages_sync",
+                    **result,
+                })
+                continue
+
+            # ENVIO DE MENSAGENS
+            if event_type == "send_message":
+                try:
+                    payload = MessageCreate.model_validate({
+                        "body": event.get("body"),
+                    })
+                except ValidationError:
+                    await websocket.send_json({
+                        "type": "error",
+                        "code": "invalid_message",
+                    })
+                    continue
+
+                try:
+                    saved = await run_in_threadpool(
+                        persist_ws_message,
+                        conversation_id,
+                        user_id,
+                        payload.body,
+                    )
+                except HTTPException as exc:
+                    await websocket.send_json({
+                        "type": "error",
+                        "code": "message_not_saved",
+                        "status": exc.status_code,
+                    })
+
+                    if exc.status_code in (401, 403, 404):
+                        await websocket.close(code=1008)
+                        break
+
+                    continue
+
+                await manager.broadcast(
+                    conversation_id,
+                    {
+                        "type": "message",
+                        "data": saved,
+                    },
+                )
+                continue
+
+            # EVENTO DESCONHECIDO
+            await websocket.send_json({
+                "type": "error",
+                "code": "unsupported_event",
+            })
+    except WebSocketDisconnect:
+        pass
+    except (ValueError, TypeError):
+        await websocket.close(code=1003)
+    finally:
+        if registered:
+           removed_user, became_offline = manager.remove(
+               conversation_id,
+               websocket,
+           )
+           if became_offline:
+               await manager.notify_presence(
+                   conversation_id,
+                   removed_user,
+                   False,
+               )
+

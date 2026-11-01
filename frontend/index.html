@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#091311">
+  <meta name="description" content="FriendsMeeting — um lugar para continuar a conversa, com privacidade e presença em tempo real.">
+  <title>FriendsMeeting — Perto de quem importa</title>
+  <link rel="icon" href="/assets/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/tokens.css">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/landing.css">
+  <link rel="stylesheet" href="/css/responsive.css">
+  <script type="module" src="/js/views/landing.js"></script>
+</head>
+<body class="landing-page">
+  <a class="skip-link" href="#main">Ir para o conteúdo</a>
+  <header class="site-header wrap">
+    <a class="brand" href="/" aria-label="FriendsMeeting, página inicial"><img src="/assets/logo.svg" alt="" width="34" height="34"><span>friends<span class="accent">meeting</span></span></a>
+    <nav class="landing-nav" aria-label="Navegação principal">
+      <a href="#como-funciona">Como funciona</a><a href="#privacidade">Privacidade</a>
+      <a href="https://github.com/rafael-mindahead/FriendsMeeting" target="_blank" rel="noopener noreferrer">GitHub</a>
+    </nav>
+    <div class="header-actions"><button id="landingTheme" class="theme-button" type="button" aria-label="Alternar tema">☀</button><a class="button ghost" href="/app.html?mode=login">Entrar</a><a class="button primary" href="/app.html?mode=register">Criar conta</a></div>
+  </header>
+  <main id="main">
+    <section class="landing-hero wrap">
+      <div class="hero-copy">
+        <span class="hero-intro"><span class="green-dot"></span> Seu espaço para conversar</span>
+        <h1>Uma conversa pode mudar <em>o seu dia.</em></h1>
+        <p>Mensagens que chegam de verdade. Amigos sempre por perto. Um espaço feito para o que importa.</p>
+        <div class="hero-actions"><a class="button primary big" href="/app.html?mode=register">Começar a conversar <span aria-hidden="true">↗</span></a><a class="button text-button" href="/app.html?demo=1">Explorar demonstração</a></div>
+        <div class="hero-note"><span aria-hidden="true">✳</span> Criado com FastAPI, WebSocket e a ideia de conectar pessoas.</div>
+      </div>
+      <div class="hero-visual" aria-label="Prévia ilustrativa do aplicativo FriendsMeeting">
+        <div class="visual-halo"></div>
+        <div class="preview-window">
+          <div class="preview-toolbar"><div class="window-dots"><i></i><i></i><i></i></div><span>FriendsMeeting</span><span class="online-indicator">● Conectado</span></div>
+          <div class="preview-layout">
+            <aside class="preview-rail"><div class="preview-rail-brand">f</div><div class="rail-item active">◉</div><div class="rail-item">♧</div><div class="rail-item">⚙</div></aside>
+            <div class="preview-contacts"><div class="preview-list-title">Conversas</div><div class="preview-contact active"><span class="preview-avatar">V</span><div><b>Vinícius</b><small>Vamos testar hoje?</small></div><span class="preview-unread">2</span></div><div class="preview-contact"><span class="preview-avatar alternate">M</span><div><b>Marina</b><small>Até amanhã!</small></div></div><div class="preview-contact"><span class="preview-avatar alt2">L</span><div><b>Luiza</b><small>Obrigada 😊</small></div></div></div>
+            <div class="preview-chat"><div class="preview-chat-head"><span class="preview-avatar">V</span><div><b>Vinícius</b><small><span class="green-dot"></span> Online agora</small></div></div><div class="preview-messages"><span class="preview-date">Hoje</span><div class="bubble other">E aí, como está ficando o projeto?</div><div class="bubble mine">Finalmente temos mensagens em tempo real ✨</div><div class="bubble other">Já quero experimentar!</div><div class="bubble mine">Agora sim. Bora conversar? <small>12:41 ✓</small></div></div><div class="preview-input">Escreva uma mensagem <span>↗</span></div></div>
+          </div>
+        </div>
+        <div class="floating-note"><span class="green-dot"></span> Um lugar só seu para conversar</div>
+      </div>
+    </section>
+    <section class="landing-info wrap" id="como-funciona"><div class="info-lead"><span>Simples como deveria ser</span><h2>O que importa é a conversa.</h2></div><div class="info-grid"><div><span class="info-symbol">◎</span><h3>Encontre seus amigos</h3><p>Adicione pessoas pelo código de amizade. Sem complicação.</p></div><div><span class="info-symbol">◌</span><h3>Esteja presente</h3><p>Veja quem está conectado e retome de onde parou.</p></div><div><span class="info-symbol">↺</span><h3>Não perca o fio</h3><p>Histórico persistente e recuperação das mensagens perdidas.</p></div></div></section>
+    <section class="privacy-section" id="privacidade"><div class="wrap privacy-content"><h2>Feito para os seus amigos, não para o ruído.</h2><p>Conversas privadas, perfis com fotos opcionais e controle sobre sua aparência. O ESP32 como intermediário é uma etapa futura do projeto.</p><a class="button primary" href="/app.html?mode=register">Criar minha conta</a></div></section>
+  </main>
+  <footer class="site-footer wrap"><span>© FriendsMeeting · Um projeto em evolução.</span><a href="https://github.com/rafael-mindahead/FriendsMeeting">Código no GitHub</a></footer>
+</body>
+</html>

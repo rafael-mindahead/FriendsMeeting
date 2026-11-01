@@ -1,0 +1,10 @@
+{
+  "name": "friendsmeeting-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Frontend sem dependencias: navegador nativo, FastAPI e WebSocket",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  }
+}

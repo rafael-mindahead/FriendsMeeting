@@ -1,0 +1,40 @@
+name: FriendsMeeting frontend checks
+
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      - 'frontend/**'
+      - 'compose.frontend.yaml'
+      - '.github/workflows/frontend-tests.yml'
+  pull_request:
+    branches: [develop, main]
+  workflow_dispatch:
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check JavaScript module syntax
+        run: |
+          find frontend/js -name '*.js' -print0 | xargs -0 -n 1 node --check
+      - name: Run frontend unit checks
+        working-directory: frontend
+        run: npm test
+      - name: Verify linked local assets
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          for file in (Path("frontend/index.html"), Path("frontend/app.html")):
+              html=file.read_text(encoding="utf-8")
+              import re
+              for asset in re.findall(r'(?:href|src)="(/(?:css|js|assets)/[^"]+)"', html):
+                  local=Path("frontend") / asset.lstrip("/")
+                  assert local.is_file(), f"Falta o arquivo {local}"
+          print("HTML assets OK")
+          PY

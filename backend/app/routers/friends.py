@@ -177,7 +177,7 @@ def list_received_requests(
     senders = db.scalars(
         select(User).where(User.id.in_(sender_ids))
     ).all()
-    usernames = {user.id: user.username for user in senders}
+    usernames = {user.id: user.username for user in senders if isinstance(user, User)}
     return [
         FriendRequestPublic.model_validate(record).model_copy(
             update={"sender_username": usernames.get(record.sender_id)}

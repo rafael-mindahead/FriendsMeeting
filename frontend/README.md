@@ -43,3 +43,18 @@ A integração com ESP32 não foi implementada nesta entrega. Não usar o Compos
 ## Método CRT
 
 Mudanças em `develop`, separadas por responsabilidade para permitir criação, leitura e teste. Promover para `main` somente após aprovação da validação.
+
+## Auditoria UI Humanizer (2026-11-01)
+
+A direção de design e as decisões estão em [DESIGN.md](./DESIGN.md). O projeto preserva a identidade verde/grafite, mas remove textos genéricos de marketing, depoimentos simulados, ícones de emoji e reconstruções do compositor por eventos. O histórico é carregado em páginas de 40 mensagens, com preservação da posição de leitura; convites mostram remetente e foto.
+
+A CI também verifica a interface em **1440×900, 768×1024 e 390×844** com Playwright. Execução local:
+
+```bash
+cd frontend
+npm install
+npx playwright install chromium
+npm run test:e2e
+```
+
+A recuperação de login após reload ainda exige suporte a cookies HttpOnly do backend; o cursor/offset do histórico deve evoluir para paginação estável em cenários de gravação concorrente. A captura ilustrativa da landing deve ser trocada por screenshot real aprovado antes da publicação final.

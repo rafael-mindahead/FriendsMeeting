@@ -1,6 +1,7 @@
 import os
 import secrets
 from uuid import UUID, uuid4
+from app.models.conversation import Conversation
 
 import pytest
 from fastapi import HTTPException
@@ -267,3 +268,210 @@ def test_real_database_rejects_forged_sender(pg_websocket):
         ).all()
 
         assert messages == []
+
+
+
+def test_sync_recovers_messages_after_reconnect(pg_websocket):
+    client, factory, conversation_id, alice, bob, charlie = (
+        pg_websocket
+    )
+    path = f"/api/v1/conversations/{conversation_id}/ws"
+
+    marker = websocket_chat.persist_ws_message(
+        conversation_id, alice.id, "Ultima mensagem recebida"
+    )
+
+    # Bob estava conectado, mas perdeu a conexao.
+    with client.websocket_connect(path) as bob_ws:
+        bob_ws.send_json({
+            "type": "auth",
+            "token": "bob-token",
+        })
+        assert bob_ws.receive_json()["type"] == "ready"
+
+    # Alice envia duas mensagens enquanto Bob esta offline.
+    with client.websocket_connect(path) as alice_ws:
+        alice_ws.send_json({
+            "type": "auth",
+            "token": "alice-token",
+        })
+        assert alice_ws.receive_json()["type"] == "ready"
+
+        for body in ("Mensagem perdida 1", "Mensagem perdida 2"):
+            alice_ws.send_json({
+                "type": "send_message",
+                "body": body,
+            })
+            assert alice_ws.receive_json()["type"] == "message"
+
+    # Bob reconecta e recupera o que perdeu.
+    with client.websocket_connect(path) as bob_ws:
+        bob_ws.send_json({
+            "type": "auth",
+            "token": "bob-token",
+        })
+        assert bob_ws.receive_json()["type"] == "ready"
+
+        bob_ws.send_json({
+            "type": "sync_messages",
+            "after_id": marker["id"],
+        })
+
+        result = bob_ws.receive_json()
+
+        assert result["type"] == "messages_sync"
+        assert [m["body"] for m in result["messages"]] == [
+            "Mensagem perdida 1",
+            "Mensagem perdida 2",
+        ]
+        assert result["has_more"] is False
+
+
+def test_sync_supports_pagination(pg_websocket):
+    client, factory, conversation_id, alice, bob, charlie = (
+        pg_websocket
+    )
+
+    marker = websocket_chat.persist_ws_message(
+        conversation_id, alice.id, "Marco inicial"
+    )
+
+    for i in range(3):
+        websocket_chat.persist_ws_message(
+            conversation_id, alice.id, f"Mensagem {i}"
+        )
+
+    path = f"/api/v1/conversations/{conversation_id}/ws"
+
+    with client.websocket_connect(path) as ws:
+        ws.send_json({
+            "type": "auth",
+            "token": "bob-token",
+        })
+        assert ws.receive_json()["type"] == "ready"
+
+        ws.send_json({
+            "type": "sync_messages",
+            "after_id": marker["id"],
+            "limit": 2,
+        })
+
+        page1 = ws.receive_json()
+
+        assert len(page1["messages"]) == 2
+        assert page1["has_more"] is True
+
+        ws.send_json({
+            "type": "sync_messages",
+            "after_id": page1["next_after_id"],
+            "limit": 2,
+        })
+
+        page2 = ws.receive_json()
+
+        assert len(page2["messages"]) == 1
+        assert page2["has_more"] is False
+
+        bodies = [
+            m["body"]
+            for m in page1["messages"] + page2["messages"]
+        ]
+
+        assert bodies == [
+            "Mensagem 0",
+            "Mensagem 1",
+            "Mensagem 2",
+        ]
+
+
+def test_sync_rejects_invalid_requests(pg_websocket):
+    client, factory, conversation_id, alice, bob, charlie = (
+        pg_websocket
+    )
+
+    path = f"/api/v1/conversations/{conversation_id}/ws"
+
+    with client.websocket_connect(path) as ws:
+        ws.send_json({
+            "type": "auth",
+            "token": "bob-token",
+        })
+        assert ws.receive_json()["type"] == "ready"
+
+        invalid = [
+            {"type": "sync_messages"},
+            {
+                "type": "sync_messages",
+                "after_id": "invalido",
+            },
+            {
+                "type": "sync_messages",
+                "after_id": str(uuid4()),
+                "limit": 101,
+            },
+        ]
+
+        for event in invalid:
+            ws.send_json(event)
+            response = ws.receive_json()
+
+            assert response["type"] == "error"
+            assert response["code"] == "invalid_sync"
+
+        # Um cursor UUID inexistente tambem e rejeitado.
+        ws.send_json({
+            "type": "sync_messages",
+            "after_id": str(uuid4()),
+        })
+
+        response = ws.receive_json()
+
+        assert response["type"] == "error"
+        assert response["code"] == "sync_failed"
+        assert response["status"] == 409
+
+        # A conexao continua utilizavel.
+        ws.send_json({"type": "ping"})
+        assert ws.receive_json() == {"type": "pong"}
+
+
+def test_sync_does_not_expose_other_conversation(pg_websocket):
+    client, factory, conversation_id, alice, bob, charlie = (
+        pg_websocket
+    )
+
+    other_conversation = Conversation(
+        id=uuid4(),
+        user_a_id=alice.id,
+        user_b_id=charlie.id,
+    )
+
+    with factory() as db:
+        db.add(other_conversation)
+        db.commit()
+
+    foreign_message = websocket_chat.persist_ws_message(
+        other_conversation.id,
+        alice.id,
+        "Mensagem confidencial",
+    )
+
+    path = f"/api/v1/conversations/{conversation_id}/ws"
+
+    with client.websocket_connect(path) as ws:
+        ws.send_json({
+            "type": "auth",
+            "token": "bob-token",
+        })
+        assert ws.receive_json()["type"] == "ready"
+
+        ws.send_json({
+            "type": "sync_messages",
+            "after_id": foreign_message["id"],
+        })
+
+        response = ws.receive_json()
+
+        assert response["type"] == "error"
+        assert response["code"] == "sync_failed"
+        assert response["status"] == 409

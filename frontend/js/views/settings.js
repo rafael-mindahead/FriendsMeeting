@@ -1,5 +1,6 @@
 import { preference } from "../lib/theme.js";
 import { esc } from "../lib/dom.js";
+import { icon } from "../lib/icons.js";
 
 const choice=(value,label,icon,selected)=>
   `<button type="button" class="theme-option ${selected===value?"selected":""}" data-action="theme" data-theme="${value}" aria-pressed="${selected===value}"><span class="icon" aria-hidden="true">${icon}</span>${esc(label)}</button>`;
@@ -10,9 +11,9 @@ export function renderSettings(state){
     <div class="section-content">
       <section class="card-section"><h2>Aparência</h2><p class="section-subtitle">Escolha como prefere enxergar suas conversas. A opção automática acompanha o tema do seu dispositivo.</p>
       <div class="theme-options" role="group" aria-label="Escolher aparência">
-        ${choice("light","Claro","☀",selected)}
-        ${choice("dark","Escuro","☾",selected)}
-        ${choice("system","Automático","◐",selected)}
+        ${choice("light","Claro",icon("sun",25),selected)}
+        ${choice("dark","Escuro",icon("moon",25),selected)}
+        ${choice("system","Automático",icon("monitor",25),selected)}
       </div></section>
       <section class="card-section"><h2>Sua conta</h2>
         <div class="settings-row"><div><h3>Perfil e foto</h3><p>Gerencie as informações que seus amigos veem.</p></div><button class="button ghost" data-action="tab" data-tab="profile">Meu perfil</button></div>

@@ -109,6 +109,7 @@ def test_request_is_persisted(pg_context):
     assert received.status_code == 200
     assert len(received.json()) == 1
     assert received.json()[0]["id"] == str(request_id)
+    assert received.json()[0]["sender_username"] == "alice_teste"
 
 
 def test_reverse_duplicate_is_rejected(pg_context):

@@ -42,6 +42,7 @@ class FriendRequestPublic(BaseModel):
     status: Literal["pending", "accepted", "rejected"]
     created_at: datetime
     responded_at: datetime | None
+    sender_username: str | None = None
 
 
 @router.post(
@@ -161,11 +162,28 @@ def list_received_requests(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return db.scalars(
+    records = db.scalars(
         select(FriendRequest)
-        .where(FriendRequest.receiver_id == current_user.id, FriendRequest.status == "pending",)
+        .where(
+            FriendRequest.receiver_id == current_user.id,
+            FriendRequest.status == "pending",
+        )
         .order_by(FriendRequest.created_at.desc())
     ).all()
+
+    sender_ids = {record.sender_id for record in records}
+    if not sender_ids:
+        return []
+    senders = db.scalars(
+        select(User).where(User.id.in_(sender_ids))
+    ).all()
+    usernames = {user.id: user.username for user in senders if isinstance(user, User)}
+    return [
+        FriendRequestPublic.model_validate(record).model_copy(
+            update={"sender_username": usernames.get(record.sender_id)}
+        )
+        for record in records
+    ]
 
 class FriendRequestDecision(BaseModel):
     action: Literal["accept", "reject"]

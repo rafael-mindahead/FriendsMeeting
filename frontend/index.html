@@ -26,11 +26,11 @@
   <main id="main">
     <section class="landing-hero wrap">
       <div class="hero-copy">
-        <span class="hero-intro"><span class="green-dot"></span> Seu espaço para conversar</span>
-        <h1>Uma conversa pode mudar <em>o seu dia.</em></h1>
-        <p>Mensagens que chegam de verdade. Amigos sempre por perto. Um espaço feito para o que importa.</p>
-        <div class="hero-actions"><a class="button primary big" href="/app.html?mode=register">Começar a conversar <span aria-hidden="true">↗</span></a><a class="button text-button" href="/app.html?demo=1">Explorar demonstração</a></div>
-        <div class="hero-note"><span aria-hidden="true">✳</span> Criado com FastAPI, WebSocket e a ideia de conectar pessoas.</div>
+        
+        <h1>Converse com seus amigos em tempo real.</h1>
+        <p>Adicione amigos por código, troque mensagens privadas e continue de onde parou depois de uma desconexão.</p>
+        <div class="hero-actions"><a class="button primary big" href="/app.html?mode=register">Criar conta</a><a class="button text-button" href="/app.html?demo=1">Abrir demonstração</a></div>
+        <div class="hero-note">Projeto em desenvolvimento: o chat já utiliza FastAPI, PostgreSQL e WebSocket. O ESP32 ainda será integrado.</div>
       </div>
       <div class="hero-visual" aria-label="Prévia ilustrativa do aplicativo FriendsMeeting">
         <div class="visual-halo"></div>
@@ -42,10 +42,16 @@
             <div class="preview-chat"><div class="preview-chat-head"><span class="preview-avatar">V</span><div><b>Vinícius</b><small><span class="green-dot"></span> Online agora</small></div></div><div class="preview-messages"><span class="preview-date">Hoje</span><div class="bubble other">E aí, como está ficando o projeto?</div><div class="bubble mine">Finalmente temos mensagens em tempo real ✨</div><div class="bubble other">Já quero experimentar!</div><div class="bubble mine">Agora sim. Bora conversar? <small>12:41 ✓</small></div></div><div class="preview-input">Escreva uma mensagem <span>↗</span></div></div>
           </div>
         </div>
-        <div class="floating-note"><span class="green-dot"></span> Um lugar só seu para conversar</div>
+        <p class="preview-disclaimer">Prévia ilustrativa do aplicativo. <a href="/app.html?demo=1">Abrir a versão demonstrativa</a>.</p>
       </div>
     </section>
-    <section class="landing-info wrap" id="como-funciona"><div class="info-lead"><span>Simples como deveria ser</span><h2>O que importa é a conversa.</h2></div><div class="info-grid"><div><span class="info-symbol">◎</span><h3>Encontre seus amigos</h3><p>Adicione pessoas pelo código de amizade. Sem complicação.</p></div><div><span class="info-symbol">◌</span><h3>Esteja presente</h3><p>Veja quem está conectado e retome de onde parou.</p></div><div><span class="info-symbol">↺</span><h3>Não perca o fio</h3><p>Histórico persistente e recuperação das mensagens perdidas.</p></div></div></section>
+    <section class="landing-info wrap" id="como-funciona">
+  <div class="info-lead"><h2>Da amizade à conversa.</h2><p>Um fluxo simples que você pode experimentar na demonstração.</p></div>
+  <div class="info-grid">
+    <div><h3>Encontre alguém pelo código.</h3><p>Envie um convite, espere o aceite e abra uma conversa privada.</p></div>
+    <div><h3>Continue de onde parou.</h3><p>As mensagens ficam no PostgreSQL e podem ser recuperadas após reconectar.</p></div>
+  </div>
+</section>
     <section class="privacy-section" id="privacidade"><div class="wrap privacy-content"><h2>Feito para os seus amigos, não para o ruído.</h2><p>Conversas privadas, perfis com fotos opcionais e controle sobre sua aparência. O ESP32 como intermediário é uma etapa futura do projeto.</p><a class="button primary" href="/app.html?mode=register">Criar minha conta</a></div></section>
   </main>
   <footer class="site-footer wrap"><span>© FriendsMeeting · Um projeto em evolução.</span><a href="https://github.com/rafael-mindahead/FriendsMeeting">Código no GitHub</a></footer>

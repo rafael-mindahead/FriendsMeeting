@@ -10,6 +10,7 @@ from app.models.friend_request import FriendRequest
 
 from app.models.conversation import Conversation
 from app.models.message import Message
+from app.models.user_avatar import UserAvatar
 
 config = context.config
 

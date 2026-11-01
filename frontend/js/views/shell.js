@@ -28,7 +28,7 @@ export function contactItems(state){
 function renderFriends(state){
   const friends=state.friends.map(person=>`<div class="invite-row">${avatar(person)}<span class="contact-data"><strong>${esc(person.username)}</strong><small>Amigo adicionado</small></span><button class="button ghost" type="button" data-action="open-friend" data-id="${esc(person.id)}">Conversar</button></div>`).join("");
   const invites=state.requests.map(req=>`<div class="invite-row">
-    <span class="avatar small">${icon("users",16)}</span><span class="contact-data"><strong>Solicitação recebida</strong><small>De: ${esc(shortId(req.sender_id))}</small></span>
+    ${avatar({id:req.sender_id,username:req.sender_username||"Usuário"},"small")}<span class="contact-data"><strong>${esc(req.sender_username||"Usuário "+shortId(req.sender_id))}</strong><small>Quer adicionar você</small></span>
     <div class="invite-actions"><button class="button primary" data-action="accept" data-id="${esc(req.id)}">Aceitar</button><button class="button ghost" data-action="reject" data-id="${esc(req.id)}">Recusar</button></div></div>`).join("");
   return `<header class="panel-header"><div><h1>Amigos</h1><p>Seu círculo de conversas.</p></div><button class="icon-button" data-action="refresh" title="Atualizar" aria-label="Atualizar amigos">${icon("refresh")}</button></header>
   <div class="section-content">

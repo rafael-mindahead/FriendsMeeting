@@ -2,6 +2,13 @@ import { esc, fmtTime } from "../lib/dom.js";
 import { avatar } from "../lib/avatars.js";
 import { icon } from "../lib/icons.js";
 
+export function renderMessageItems(state){
+  const messages=state.messages.get(state.selectedId)||[];
+  if(!messages.length) return `<div class="empty-state"><div class="empty-glyph">${icon("message-circle",40)}</div><h2>Sua primeira mensagem</h2><p>Que tal começar com um olá?</p></div>`;
+  return messages.map(item=>`<article class="chat-message ${item.sender_id===state.user.id?"mine":""}">
+    <div class="message-bubble">${esc(item.body)}</div><time class="message-time" datetime="${esc(item.created_at)}">${fmtTime(item.created_at)}</time></article>`).join("");
+}
+
 export function renderChat(state){
   const conversation=state.conversations.find(item=>item.id===state.selectedId);
   if(!conversation) return `<div class="main-empty"><div class="empty-state"><div class="empty-glyph">${icon("message-circle",40)}</div>
@@ -12,15 +19,14 @@ export function renderChat(state){
   const messages=state.messages.get(conversation.id)||[];
   const online=state.online.has(otherId);
   const status=state.demo?"Demonstração":state.connection==="connected"?"Conectado":state.connection==="connecting"?"Conectando…":"Reconectando…";
-  const items=messages.map(item=>`<article class="chat-message ${item.sender_id===state.user.id?"mine":""}">
-    <div class="message-bubble">${esc(item.body)}</div><time class="message-time" datetime="${esc(item.created_at)}">${fmtTime(item.created_at)}</time></article>`).join("");
+  const items=renderMessageItems(state);
   return `
     <header class="chat-head"><div class="chat-head-user">
       <button class="icon-button chat-back" data-action="back" aria-label="Voltar às conversas">${icon("arrow-left")}</button>
-      ${avatar(friend)}<div><strong>${esc(friend.username)}</strong><small class="${online?"online":""}">${online?"● Online agora":"Conversa privada"}</small></div>
-    </div><div class="chat-actions"><span class="connection-badge ${state.connection==="connected"||state.demo?"connected":""}"><i class="green-dot"></i>${esc(status)}</span></div></header>
+      ${avatar(friend)}<div><strong>${esc(friend.username)}</strong><small id="friendPresence" class="${online?"online":""}">${online?"● Online agora":"Conversa privada"}</small></div>
+    </div><div class="chat-actions"><span id="connectionBadge" class="connection-badge ${state.connection==="connected"||state.demo?"connected":""}"><i class="green-dot"></i><span id="connectionStatus">${esc(status)}</span></span></div></header>
     <div class="chat-scroll" id="messages" role="log" aria-label="Mensagens da conversa" aria-live="polite">
-      ${messages.length?items:`<div class="empty-state"><div class="empty-glyph">✉</div><h2>Sua primeira mensagem</h2><p>Que tal começar com um olá?</p></div>`}
+      ${items}
     </div>
     <form class="chat-composer" id="messageForm">
       <div class="composer-inner"><textarea id="messageInput" aria-label="Escrever mensagem" name="body" placeholder="Escreva uma mensagem…" rows="1" maxlength="2000" required></textarea>

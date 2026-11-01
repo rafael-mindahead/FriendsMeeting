@@ -8,6 +8,7 @@ import { createConversation, getHistory, mergedMessages } from "./lib/conversati
 import { ChatConnection } from "./lib/realtime.js";
 import { showAuth } from "./views/auth.js";
 import { renderShell, contactItems } from "./views/shell.js";
+import { renderMessageItems } from "./views/chat.js";
 
 initializeTheme();
 const root = $("#appRoot");
@@ -86,13 +87,36 @@ function render(){
   const messages=$("#messages",root);
   if(messages) messages.scrollTop=messages.scrollHeight;
 }
+// Update conversation content without replacing composer focus or rascunhos.
+function refreshChat({forceScroll=false,updateMessages=false,preserveTop=false}={}){
+  if(state.view!=="chat"||!state.selectedId)return;
+  const badge=$("#connectionBadge",root), status=$("#connectionStatus",root);
+  if(status)status.textContent=state.demo?"Demonstração":state.connection==="connected"?"Conectado":state.connection==="connecting"?"Conectando…":"Reconectando…";
+  if(badge)badge.classList.toggle("connected",state.demo||state.connection==="connected");
+  const conversation=state.conversations.find(item=>item.id===state.selectedId);
+  const otherId=conversation?.user_a_id===state.user.id?conversation?.user_b_id:conversation?.user_a_id;
+  const presence=$("#friendPresence",root);
+  if(presence){const online=state.online.has(otherId);presence.textContent=online?"● Online agora":"Conversa privada";presence.classList.toggle("online",online);}
+  const submit=$("#messageForm button[type=submit]",root);
+  if(submit)submit.disabled=!state.demo&&state.connection!=="connected";
+  if(!updateMessages)return;
+  const scroll=$("#messages",root);
+  if(!scroll)return;
+  const oldHeight=scroll.scrollHeight, oldTop=scroll.scrollTop;
+  const nearBottom=oldHeight-oldTop-scroll.clientHeight<110;
+  scroll.innerHTML=renderMessageItems(state);
+  if(preserveTop)scroll.scrollTop=oldTop+(scroll.scrollHeight-oldHeight);
+  else scroll.scrollTop=forceScroll||nearBottom?scroll.scrollHeight:oldTop;
+  const list=$("#contactList",root);
+  if(list){list.innerHTML=contactItems(state);bindAvatarFallbacks(list);}
+}
 function disconnect(){
   state.socket?.close();state.socket=null;
   state.connection="disconnected";
 }
 function addMessages(id,items){
   state.messages.set(id,mergedMessages(state.messages.get(id)||[],items||[]));
-  if(state.selectedId===id && state.view==="chat")render();
+  if(state.selectedId===id && state.view==="chat")refreshChat({updateMessages:true});
 }
 async function reloadMessages(id){
   if(state.demo || state.selectedId!==id)return;
@@ -115,13 +139,13 @@ async function selectConversation(id){
     state.socket=new ChatConnection(id,{
       cursor:()=>state.messages.get(id)?.at(-1)?.id||null,
       reload:()=>reloadMessages(id),
-      status:status=>{if(state.selectedId===id){state.connection=status;render();}},
+      status:status=>{if(state.selectedId===id){state.connection=status;refreshChat();}},
       messages:incoming=>{if(state.selectedId===id)addMessages(id,incoming);},
-      snapshot:users=>{if(state.selectedId===id){state.online=new Set(users);render();}},
+      snapshot:users=>{if(state.selectedId===id){state.online=new Set(users);refreshChat();}},
       presence:event=>{
         if(state.selectedId!==id)return;
         event.online?state.online.add(event.user_id):state.online.delete(event.user_id);
-        render();
+        refreshChat();
       },
       error:code=>{if(code!=="unsupported_event")toast("Não foi possível concluir: "+code);},
       expired:async()=>{
@@ -129,7 +153,7 @@ async function selectConversation(id){
         toast("Sua sessão terminou. Entre novamente.");
       }
     });
-  }catch(error){state.connection="disconnected";render();toast(error.message);}
+  }catch(error){state.connection="disconnected";refreshChat();toast(error.message);}
 }
 async function openFriend(id){
   if(state.demo){
@@ -217,6 +241,7 @@ root.addEventListener("submit",async event=>{
         id:"demo-"+Date.now()+"-"+Math.random(),sender_id:state.user.id,
         body,created_at:new Date().toISOString()
       }]);
+      field.value="";
       return;
     }
     if(!state.socket?.send({type:"send_message",body})){

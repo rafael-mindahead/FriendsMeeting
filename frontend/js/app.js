@@ -17,7 +17,7 @@ const state = {
   demo:false,user:null,authMode:params.get("mode")==="register"?"register":"login",
   view:"chat",search:"",selectedId:null, friends:[],requests:[],conversations:[],
   messages:new Map(),online:new Set(),connection:"disconnected",
-  avatarRevision:"",socket:null
+  avatarRevision:"",socket:null,historyOffsets:new Map(),olderAvailable:new Map()
 };
 
 function demoData() {
@@ -114,16 +114,35 @@ function disconnect(){
   state.socket?.close();state.socket=null;
   state.connection="disconnected";
 }
-function addMessages(id,items){
+function addMessages(id,items,{preserveTop=false}={}){
   state.messages.set(id,mergedMessages(state.messages.get(id)||[],items||[]));
-  if(state.selectedId===id && state.view==="chat")refreshChat({updateMessages:true});
+  if(state.selectedId===id && state.view==="chat")refreshChat({updateMessages:true,preserveTop});
 }
 async function reloadMessages(id){
   if(state.demo || state.selectedId!==id)return;
   try{
-    const incoming=await getHistory(id);
-    if(state.selectedId===id)addMessages(id,incoming);
+    const incoming=await getHistory(id,40,0);
+    if(state.selectedId===id){
+      if(!state.historyOffsets.has(id)){
+        state.historyOffsets.set(id,incoming.length);
+        state.olderAvailable.set(id,incoming.length===40);
+      }
+      addMessages(id,incoming);
+    }
   }catch(error){toast(error.message);}
+}
+async function loadOlderMessages(id){
+  if(state.demo || state.selectedId!==id || !state.olderAvailable.get(id))return;
+  const button=root.querySelector('[data-action="load-older"]');
+  if(button)button.disabled=true;
+  const offset=state.historyOffsets.get(id)||0;
+  try{
+    const page=await getHistory(id,40,offset);
+    if(state.selectedId!==id)return;
+    state.historyOffsets.set(id,offset+page.length);
+    state.olderAvailable.set(id,page.length===40);
+    addMessages(id,page,{preserveTop:true});
+  }catch(error){toast(error.message);if(button)button.disabled=false;}
 }
 async function selectConversation(id){
   if(!state.conversations.some(item=>item.id===id))return;
@@ -173,6 +192,7 @@ async function signOut(){
   state.demo=false;state.user=null;state.friends=[];state.requests=[];
   state.conversations=[];state.messages.clear();state.online.clear();
   state.selectedId=null;state.search="";state.avatarRevision="";
+  state.historyOffsets.clear();state.olderAvailable.clear();
   history.replaceState(null,"","/app.html?mode=login");
   state.authMode="login";
   showLogin();
@@ -190,6 +210,8 @@ root.addEventListener("click",async event=>{
       render();
     } else if(action==="select-conversation"){
       await selectConversation(button.dataset.id);
+    } else if(action==="load-older"){
+      await loadOlderMessages(state.selectedId);
     } else if(action==="open-friend"){
       await openFriend(button.dataset.id);
     } else if(action==="back"){

@@ -5,8 +5,10 @@ import { icon } from "../lib/icons.js";
 export function renderMessageItems(state){
   const messages=state.messages.get(state.selectedId)||[];
   if(!messages.length) return `<div class="empty-state"><div class="empty-glyph">${icon("message-circle",40)}</div><h2>Sua primeira mensagem</h2><p>Que tal começar com um olá?</p></div>`;
-  return messages.map(item=>`<article class="chat-message ${item.sender_id===state.user.id?"mine":""}">
+  const entries=messages.map(item=>`<article class="chat-message ${item.sender_id===state.user.id?"mine":""}">
     <div class="message-bubble">${esc(item.body)}</div><time class="message-time" datetime="${esc(item.created_at)}">${fmtTime(item.created_at)}</time></article>`).join("");
+  const more=state.olderAvailable?.get(state.selectedId)?`<button type="button" class="load-older" data-action="load-older">Carregar mensagens anteriores</button>`:"";
+  return more+entries;
 }
 
 export function renderChat(state){

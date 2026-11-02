@@ -23,6 +23,9 @@ jobs:
       - name: Check JavaScript module syntax
         run: |
           find frontend/js -name '*.js' -print0 | xargs -0 -n 1 node --check
+      - name: Install frontend test dependencies
+        working-directory: frontend
+        run: npm install --no-audit --no-fund
       - name: Run frontend unit checks
         working-directory: frontend
         run: npm test
@@ -38,3 +41,17 @@ jobs:
                   assert local.is_file(), f"Falta o arquivo {local}"
           print("HTML assets OK")
           PY
+
+      - name: Install Chromium for browser checks
+        working-directory: frontend
+        run: npx playwright install chromium --with-deps
+      - name: Run browser smoke checks at three viewports
+        working-directory: frontend
+        run: npm run test:e2e
+      - name: Upload failing browser traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: friendsmeeting-browser-report
+          path: frontend/playwright-report/
+          if-no-files-found: ignore

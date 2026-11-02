@@ -10,18 +10,18 @@ export function showAuth({mode="login",onMode,onSubmit,onDemo}) {
       <aside class="auth-left">
         ${brand}
         <div class="auth-story">
-          <span class="eyebrow">As melhores conversas começam aqui</span>
-          <h1>Mais perto de quem <em>importa.</em></h1>
-          <p>Um espaço simples, bonito e privado para continuar o que você tem a dizer.</p>
-          <div class="auth-quote"><small>Vinícius · agora</small>Bora continuar aquela conversa? ✨</div>
+          
+          <h1>Mensagens privadas entre amigos.</h1>
+          <p>Convide pessoas pelo código de amizade, acompanhe sua presença e converse em tempo real.</p>
+          <p class="auth-facts">FastAPI · PostgreSQL · WebSocket</p>
         </div>
         <a class="auth-back" href="/">← Voltar ao início</a>
       </aside>
       <main id="appMain" class="auth-right">
         <section class="auth-card" aria-label="${isRegister?"Cadastro":"Login"}">
-          <span class="eyebrow">FriendsMeeting</span>
-          <h2>${isRegister?"Seu espaço começa aqui.":"Bom ter você aqui."}</h2>
-          <p>${isRegister?"Crie sua conta para encontrar seus amigos.":"Entre para continuar de onde a conversa parou."}</p>
+          <span class="auth-intro-label">Sua conta</span>
+          <h2>${isRegister?"Crie sua conta.":"Entre no FriendsMeeting."}</h2>
+          <p>${isRegister?"Cadastre um usuário para receber seu código de amizade.":"Acesse suas conversas e mensagens salvas."}</p>
           <div class="auth-tabs" role="group" aria-label="Acesso à conta">
             <button type="button" data-mode="login" class="${isRegister?"":"active"}" aria-pressed="${!isRegister}">Entrar</button>
             <button type="button" data-mode="register" class="${isRegister?"active":""}" aria-pressed="${isRegister}">Criar conta</button>

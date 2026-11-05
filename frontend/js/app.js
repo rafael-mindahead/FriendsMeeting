@@ -37,6 +37,7 @@ const state = {
   view:"chat",search:"",selectedId:null, friends:[],requests:[],conversations:[],
   messages:new Map(),online:new Set(),connection:"disconnected",
   unreadMessages:new Map(),
+  typingUsers:new Map(),
   unreadDividerDismissed:new Set(),
   unreadDividerMessages:new Map(),unreadDividerHoldUntil:new Map(),
   unreadDividerTimers:new Map(),
@@ -50,6 +51,12 @@ const state = {
 let soundUnlockReminderShown=false;
 let messageReadObserver=null;
 const UNREAD_DIVIDER_MINIMUM_MS=10000;
+const TYPING_STOP_DEBOUNCE_MS=1500;
+const TYPING_REFRESH_INTERVAL_MS=2000;
+const TYPING_INDICATOR_TTL_MS=5000;
+let localTypingConversation=null;
+let typingStopTimer=null;
+let typingRefreshTimer=null;
 
 function demoData() {
   state.demo=true;
@@ -182,6 +189,7 @@ function refreshChat({forceScroll=false,updateMessages=false,preserveTop=false}=
   acknowledgeDeliveredMessages();
 }
 function disconnect(){
+  stopLocalTyping();
   state.socket?.close();state.socket=null;
   state.connection="disconnected";
   messageReadObserver?.disconnect();
@@ -220,12 +228,87 @@ function finishUnreadDividerOnExit(id){
     state.unreadDividerMessages.delete(id);
   }
 }
+function stopLocalTyping(notify=true){
+  clearTimeout(typingStopTimer);
+  clearInterval(typingRefreshTimer);
+  typingStopTimer=null;
+  typingRefreshTimer=null;
+  const conversationId=localTypingConversation;
+  localTypingConversation=null;
+  if(notify&&conversationId&&state.socket?.id===conversationId){
+    state.socket.send({type:"typing:stop"});
+  }
+}
+function updateLocalTyping(){
+  const conversationId=state.selectedId;
+  const body=$("#messageInput",root)?.value.trim();
+  if(!body){
+    stopLocalTyping();
+    return;
+  }
+  if(state.demo||!conversationId||!state.socket||state.connection!=="connected")return;
+  if(localTypingConversation!==conversationId){
+    stopLocalTyping();
+    localTypingConversation=conversationId;
+    state.socket.send({type:"typing:start"});
+    typingRefreshTimer=setInterval(()=>{
+      if(localTypingConversation===conversationId&&state.socket?.id===conversationId){
+        state.socket.send({type:"typing:start"});
+      }
+    },TYPING_REFRESH_INTERVAL_MS);
+  }
+  clearTimeout(typingStopTimer);
+  typingStopTimer=setTimeout(()=>stopLocalTyping(),TYPING_STOP_DEBOUNCE_MS);
+}
+function removeTypingUser(conversationId,userId){
+  const users=state.typingUsers.get(conversationId);
+  const typing=users?.get(userId);
+  if(!typing)return;
+  clearTimeout(typing.timer);
+  users.delete(userId);
+  if(!users.size)state.typingUsers.delete(conversationId);
+}
+function handleTypingEvent(event){
+  if(!event
+    ||typeof event.conversation_id!=="string"
+    ||typeof event.sender_id!=="string"
+    ||event.sender_id===state.user?.id
+    ||!state.conversations.some(conversation=>conversation.id===event.conversation_id))return;
+  const conversation=state.conversations.find(item=>item.id===event.conversation_id);
+  const otherId=conversation.user_a_id===state.user.id?conversation.user_b_id:conversation.user_a_id;
+  if(event.sender_id!==otherId)return;
+
+  if(event.type==="typing:stop"){
+    removeTypingUser(event.conversation_id,event.sender_id);
+  }else if(event.type==="typing:start"){
+    removeTypingUser(event.conversation_id,event.sender_id);
+    const users=state.typingUsers.get(event.conversation_id)||new Map();
+    const timer=setTimeout(()=>{
+      removeTypingUser(event.conversation_id,event.sender_id);
+      refreshContactList();
+      if(state.view==="chat"&&state.selectedId===event.conversation_id){
+        refreshChat({updateMessages:true});
+      }
+    },TYPING_INDICATOR_TTL_MS);
+    users.set(event.sender_id,{timer});
+    state.typingUsers.set(event.conversation_id,users);
+  }else{
+    return;
+  }
+
+  refreshContactList();
+  if(state.view==="chat"&&state.selectedId===event.conversation_id){
+    refreshChat({updateMessages:true});
+  }
+}
 function connectUserEvents(){
   disconnectUserEvents();
   if(state.demo||!state.user)return;
   state.userEvents=new UserEventsConnection({
     notification:handleNotification,
     message_status:handleMessageStatus,
+    "typing:start":handleTypingEvent,
+    "typing:stop":handleTypingEvent,
     error:code=>console.warn("Evento de notificação rejeitado pelo servidor:",code),
     expired:async()=>{
       await logout();
@@ -510,11 +593,13 @@ async function selectConversation(id){
         if(state.selectedId!==id)return;
         state.connection=status;
         if(status==="connecting"){
+          stopLocalTyping(false);
           state.deliveredAcknowledgements.clear();
           state.readAcknowledgements.clear();
         }
         refreshChat();
         if(status==="connected"){
+          updateLocalTyping();
           acknowledgeDeliveredMessages();
           reportVisibleMessages();
         }
@@ -526,7 +611,10 @@ async function selectConversation(id){
         event.online?state.online.add(event.user_id):state.online.delete(event.user_id);
         refreshChat();
       },
-      error:code=>{if(code!=="unsupported_event")toast("Não foi possível concluir: "+code);},
+      error:code=>{
+        if(code==="typing_unavailable")toast("Não foi possível atualizar o indicador de digitação.");
+        else if(code!=="unsupported_event")toast("Não foi possível concluir: "+code);
+      },
       expired:async()=>{
         await logout();state.user=null;state.selectedId=null;showLogin();
         toast("Sua sessão terminou. Entre novamente.");
@@ -558,6 +646,10 @@ async function signOut(){
   state.unreadDividerTimers.clear();
   state.unreadDividerMessages.clear();
   state.unreadDividerHoldUntil.clear();
+  for(const users of state.typingUsers.values()){
+    for(const typing of users.values())clearTimeout(typing.timer);
+  }
+  state.typingUsers.clear();
   state.selectedId=null;state.search="";state.avatarRevision="";
   state.notificationPreferences={muted:false,volume:100,senders:[]};
   state.processedNotificationIds.clear();
@@ -641,6 +733,7 @@ root.addEventListener("submit",async event=>{
     const field=form.elements.namedItem("body");
     const body=field.value.trim();
     if(!body || body.length>2000)return;
+    stopLocalTyping();
     if(state.demo){
       addMessages(state.selectedId,[{
         id:"demo-"+Date.now()+"-"+Math.random(),sender_id:state.user.id,
@@ -672,6 +765,10 @@ root.addEventListener("scroll",event=>{
   if(event.target.id==="messages")reportVisibleMessages();
 },true);
 root.addEventListener("input",event=>{
+  if(event.target.id==="messageInput"){
+    updateLocalTyping();
+    return;
+  }
   if(event.target.id==="contactSearch"){
     state.search=event.target.value;
     refreshContactList();

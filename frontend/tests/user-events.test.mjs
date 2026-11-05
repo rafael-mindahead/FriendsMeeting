@@ -55,3 +55,24 @@ test("dispatches message status events from the user event socket",()=>{
   assert.deepEqual(statuses,[status]);
   connection.close();
 });
+
+test("dispatches typing start and stop events from the user event socket",()=>{
+  const events=[];
+  const connection=new UserEventsConnection({
+    "typing:start":event=>events.push(event),
+    "typing:stop":event=>events.push(event)
+  });
+  const socket=connection.socket;
+  const start={
+    type:"typing:start",
+    conversation_id:"conversation-1",
+    sender_id:"user-1"
+  };
+  const stop={...start,type:"typing:stop"};
+
+  socket.emit("message",{data:JSON.stringify(start)});
+  socket.emit("message",{data:JSON.stringify(stop)});
+
+  assert.deepEqual(events,[start,stop]);
+  connection.close();
+});

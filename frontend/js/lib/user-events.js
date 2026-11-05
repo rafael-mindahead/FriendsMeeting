@@ -46,6 +46,8 @@ export class UserEventsConnection {
         this.emit("notification",packet);
       } else if(packet.type==="message_status") {
         this.emit("message_status",packet.data);
+      } else if(packet.type==="typing:start"||packet.type==="typing:stop") {
+        this.emit(packet.type,packet);
       } else if(packet.type==="error") {
         this.emit("error",packet.code||"event_error");
       }

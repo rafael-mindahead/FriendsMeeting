@@ -45,6 +45,9 @@ export class ChatConnection {
       } else if(packet.type === "message") this.emit("messages",[packet.data]);
       else if(packet.type === "presence_snapshot") this.emit("snapshot",packet.online_user_ids || []);
       else if(packet.type === "presence") this.emit("presence",packet);
+      else if(packet.type === "typing:start"||packet.type === "typing:stop") {
+        this.emit(packet.type,packet);
+      }
       else if(packet.type === "error") {
         if(packet.code === "sync_failed" && packet.status === 409) this.callbacks.reload?.();
         else this.emit("error",packet.code || "Falha na conexão");

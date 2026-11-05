@@ -1,5 +1,7 @@
 import { accessToken, refreshToken, setTokens, clearTokens } from "./session.js";
 
+let refreshInFlight;
+
 export class ApiError extends Error {
   constructor(message, status) { super(message); this.name = "ApiError"; this.status = status; }
 }
@@ -36,12 +38,20 @@ async function send(path,{method="GET",body,auth=true,retry=true}={}) {
 }
 export const api = send;
 export async function refreshSession() {
+  if (refreshInFlight) return refreshInFlight;
   if (!refreshToken()) throw new ApiError("Sessão expirada. Entre novamente.",401);
-  const tokens = await send("/auth/refresh",{
-    method:"POST",body:{refresh_token:refreshToken()},auth:false
-  });
-  setTokens(tokens);
-  return tokens.access_token;
+  refreshInFlight=(async()=>{
+    const tokens = await send("/auth/refresh",{
+      method:"POST",body:{refresh_token:refreshToken()},auth:false
+    });
+    setTokens(tokens);
+    return tokens.access_token;
+  })();
+  try {
+    return await refreshInFlight;
+  } finally {
+    refreshInFlight=null;
+  }
 }
 export async function login(email,password) {
   const tokens=await send("/auth/login",{method:"POST",body:{email,password},auth:false});

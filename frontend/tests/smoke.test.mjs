@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { esc, initials, safeUuid } from "../js/lib/dom.js";
 import { mergedMessages } from "../js/lib/conversations.js";
 import { accessToken, refreshToken, setTokens, clearTokens } from "../js/lib/session.js";
+import { refreshSession } from "../js/lib/request.js";
 
 test("escapa HTML de mensagens antes de exibir", () => {
   assert.equal(esc('<img src=x onerror="alert(1)">'), '&lt;img src=x onerror=&quot;alert(1)&quot;&gt;');
@@ -28,4 +29,26 @@ test("guarda e apaga credenciais apenas em memoria", () => {
   clearTokens();
   assert.equal(accessToken(),"");
   assert.equal(refreshToken(),"");
+});
+test("compartilha uma renovação de sessão entre sockets simultâneos",async()=>{
+  const originalFetch=globalThis.fetch;
+  let calls=0;
+  setTokens({access_token:"old-access",refresh_token:"old-refresh"});
+  globalThis.fetch=async()=>{
+    calls+=1;
+    await new Promise(resolve=>setTimeout(resolve,5));
+    return new Response(JSON.stringify({
+      access_token:"new-access",
+      refresh_token:"new-refresh"
+    }),{status:200,headers:{"Content-Type":"application/json"}});
+  };
+  try{
+    const [first,second]=await Promise.all([refreshSession(),refreshSession()]);
+    assert.equal(first,"new-access");
+    assert.equal(second,"new-access");
+    assert.equal(calls,1);
+  }finally{
+    globalThis.fetch=originalFetch;
+    clearTokens();
+  }
 });

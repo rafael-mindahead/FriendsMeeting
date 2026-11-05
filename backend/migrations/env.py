@@ -11,6 +11,10 @@ from app.models.friend_request import FriendRequest
 from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.user_avatar import UserAvatar
+from app.models.notification_preference import (
+    NotificationPreference,
+    NotificationSenderPreference,
+)
 
 config = context.config
 

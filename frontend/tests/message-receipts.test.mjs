@@ -96,6 +96,32 @@ test("hides the new messages divider after every received message is read",()=>{
   assert.doesNotMatch(html,/unread-divider/);
 });
 
+test("keeps the divider visible for ten seconds after unread messages are read",()=>{
+  const html=renderMessages([
+    message({id:"old",sender_id:"friend-1",read_at:"2026-11-05T12:00:01Z"}),
+    message({id:"new-1",sender_id:"friend-1",read_at:"2026-11-05T12:00:02Z"}),
+    message({id:"new-2",sender_id:"friend-1",read_at:"2026-11-05T12:00:03Z"})
+  ],{
+    unreadDividerMessages:new Map([["conversation-1",new Set(["new-1","new-2"])]]),
+    unreadDividerHoldUntil:new Map([["conversation-1",Date.now()+10000]])
+  });
+
+  assert.equal((html.match(/class="unread-divider"/g)||[]).length,1);
+  assert.ok(html.indexOf('class="unread-divider"')<html.indexOf('data-message-id="new-1"'));
+  assert.ok(html.indexOf('class="unread-divider"')>html.indexOf('data-message-id="old"'));
+});
+
+test("hides the divider after its ten-second hold has expired",()=>{
+  const html=renderMessages([
+    message({id:"new",sender_id:"friend-1",read_at:"2026-11-05T12:00:02Z"})
+  ],{
+    unreadDividerMessages:new Map([["conversation-1",new Set(["new"])]]),
+    unreadDividerHoldUntil:new Map([["conversation-1",Date.now()-1]])
+  });
+
+  assert.doesNotMatch(html,/unread-divider/);
+});
+
 test("can immediately dismiss the divider after sending a message",()=>{
   const html=renderMessages([
     message({id:"unread",sender_id:"friend-1"})

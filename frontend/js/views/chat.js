@@ -5,9 +5,15 @@ import { icon } from "../lib/icons.js";
 export function renderMessageItems(state){
   const messages=state.messages.get(state.selectedId)||[];
   if(!messages.length) return `<div class="empty-state"><div class="empty-glyph">${icon("message-circle",40)}</div><h2>Sua primeira mensagem</h2><p>Que tal começar com um olá?</p></div>`;
-  const firstUnreadIndex=state.demo||state.unreadDividerDismissed?.has(state.selectedId)
+  const dividerDismissed=state.demo||state.unreadDividerDismissed?.has(state.selectedId);
+  let firstUnreadIndex=dividerDismissed
     ?-1
     :messages.findIndex(item=>item.sender_id!==state.user.id&&!item.read_at);
+  if(!dividerDismissed&&firstUnreadIndex<0
+    &&state.unreadDividerHoldUntil?.get(state.selectedId)>Date.now()){
+    const trackedMessages=state.unreadDividerMessages?.get(state.selectedId);
+    firstUnreadIndex=messages.findIndex(item=>trackedMessages?.has(item.id));
+  }
   const entries=messages.map((item,index)=>{
     const mine=item.sender_id===state.user.id;
     const receipt=mine

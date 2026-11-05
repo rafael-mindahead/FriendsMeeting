@@ -38,6 +38,8 @@ const state = {
   messages:new Map(),online:new Set(),connection:"disconnected",
   unreadMessages:new Map(),
   unreadDividerDismissed:new Set(),
+  unreadDividerMessages:new Map(),unreadDividerHoldUntil:new Map(),
+  unreadDividerTimers:new Map(),
   avatarRevision:"",socket:null,userEvents:null,
   notificationPreferences:{muted:false,volume:100,senders:[]},
   processedNotificationIds:new Set(),
@@ -47,6 +49,7 @@ const state = {
 };
 let soundUnlockReminderShown=false;
 let messageReadObserver=null;
+const UNREAD_DIVIDER_MINIMUM_MS=10000;
 
 function demoData() {
   state.demo=true;
@@ -190,6 +193,33 @@ function disconnectUserEvents(){
   state.userEvents?.close();
   state.userEvents=null;
 }
+function clearUnreadDividerHold(id){
+  clearTimeout(state.unreadDividerTimers.get(id));
+  state.unreadDividerTimers.delete(id);
+  state.unreadDividerHoldUntil.delete(id);
+}
+function holdUnreadDivider(id){
+  const holdUntil=Math.max(
+    state.unreadDividerHoldUntil.get(id)||0,
+    Date.now()+UNREAD_DIVIDER_MINIMUM_MS
+  );
+  state.unreadDividerHoldUntil.set(id,holdUntil);
+  clearTimeout(state.unreadDividerTimers.get(id));
+  state.unreadDividerTimers.set(id,setTimeout(()=>{
+    state.unreadDividerTimers.delete(id);
+    state.unreadDividerHoldUntil.delete(id);
+    if(!countUnreadMessages(id))state.unreadDividerMessages.delete(id);
+    if(state.view==="chat"&&state.selectedId===id){
+      refreshChat({updateMessages:true});
+    }
+  },holdUntil-Date.now()));
+}
+function finishUnreadDividerOnExit(id){
+  if(id&&!countUnreadMessages(id)){
+    clearUnreadDividerHold(id);
+    state.unreadDividerMessages.delete(id);
+  }
+}
 function connectUserEvents(){
   disconnectUserEvents();
   if(state.demo||!state.user)return;
@@ -228,6 +258,16 @@ function acknowledgeMessageRead(message){
   if(state.socket.send({type:"message_read",message_id:message.id})){
       const messages=state.messages.get(message.conversation_id)||[];
       const firstUnread=messages.find(item=>item.sender_id!==state.user?.id&&!item.read_at);
+      if(state.unreadMessages.get(message.conversation_id)>0){
+        const trackedMessages=state.unreadDividerMessages.get(message.conversation_id)||new Set();
+        for(const unreadMessage of messages){
+          if(unreadMessage.sender_id!==state.user?.id&&!unreadMessage.read_at){
+            trackedMessages.add(unreadMessage.id);
+          }
+        }
+        state.unreadDividerMessages.set(message.conversation_id,trackedMessages);
+        holdUnreadDivider(message.conversation_id);
+      }
       rememberAcknowledgement(state.readAcknowledgements,message.id);
       message.read_at=new Date().toISOString();
       message.delivered_at=message.delivered_at||message.read_at;
@@ -391,6 +431,15 @@ function updateSenderPreference(senderId,update){
 function addMessages(id,items,{preserveTop=false}={}){
   const messages=mergedMessages(state.messages.get(id)||[],items||[]);
   applyPendingMessageStatuses(messages,state.pendingMessageStatuses);
+  if((state.unreadMessages.get(id)||0)>0){
+    const trackedMessages=state.unreadDividerMessages.get(id)||new Set();
+    for(const message of messages){
+      if(message.sender_id!==state.user?.id&&!message.read_at){
+        trackedMessages.add(message.id);
+      }
+    }
+    state.unreadDividerMessages.set(id,trackedMessages);
+  }
   state.messages.set(id,messages);
   if(state.selectedId===id && state.view==="chat"){
     refreshChat({updateMessages:true,preserveTop});
@@ -443,6 +492,7 @@ async function loadOlderMessages(id){
 }
 async function selectConversation(id){
   if(!state.conversations.some(item=>item.id===id))return;
+  if(state.selectedId!==id)finishUnreadDividerOnExit(state.selectedId);
   disconnect();
   state.view="chat";state.selectedId=id;
   state.unreadDividerDismissed.delete(id);
@@ -504,6 +554,10 @@ async function signOut(){
   state.conversations=[];state.messages.clear();state.online.clear();
   state.unreadMessages.clear();
   state.unreadDividerDismissed.clear();
+  for(const timer of state.unreadDividerTimers.values())clearTimeout(timer);
+  state.unreadDividerTimers.clear();
+  state.unreadDividerMessages.clear();
+  state.unreadDividerHoldUntil.clear();
   state.selectedId=null;state.search="";state.avatarRevision="";
   state.notificationPreferences={muted:false,volume:100,senders:[]};
   state.processedNotificationIds.clear();
@@ -521,6 +575,7 @@ root.addEventListener("click",async event=>{
   const action=button.dataset.action;
   try {
     if(action==="tab"){
+      finishUnreadDividerOnExit(state.selectedId);
       disconnect();
       state.view=button.dataset.tab;
       state.selectedId=null;state.search="";
@@ -532,6 +587,7 @@ root.addEventListener("click",async event=>{
     } else if(action==="open-friend"){
       await openFriend(button.dataset.id);
     } else if(action==="back"){
+      finishUnreadDividerOnExit(state.selectedId);
       disconnect();state.selectedId=null;render();
     } else if(action==="refresh"){
       await loadLists();render();toast("Atualizado.");
@@ -596,6 +652,8 @@ root.addEventListener("submit",async event=>{
     if(!state.socket?.send({type:"send_message",body})){
       toast("Aguarde a conexão para enviar.");return;
     }
+    clearUnreadDividerHold(state.selectedId);
+    state.unreadDividerMessages.delete(state.selectedId);
     state.unreadDividerDismissed.add(state.selectedId);
     refreshChat({updateMessages:true});
     field.value="";
@@ -608,7 +666,6 @@ root.addEventListener("keydown",event=>{
 });
 document.addEventListener("visibilitychange",()=>{
   if(document.visibilityState!=="visible"||state.view!=="chat"||!state.selectedId)return;
-  if(state.unreadMessages.delete(state.selectedId))refreshContactList();
   reportVisibleMessages();
 });
 root.addEventListener("scroll",event=>{

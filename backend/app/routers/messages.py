@@ -6,12 +6,14 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.Database.database import get_db
 from app.dependencies.current_user import get_current_user
 from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.user import User
+from app.realtime.manager import manager
 from app.routers.conversations import ConversationPublic
 
 router = APIRouter(
@@ -69,16 +71,11 @@ def get_conversation(
     return get_authorized_conversation(conversation_id, db, current_user)
 
 
-@router.post(
-    "/{conversation_id}/messages",
-    response_model= MessagePublic,
-    status_code=201,
-)
-def send_message(
+def persist_http_message(
     conversation_id: UUID,
     data: MessageCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    db: Session,
+    current_user: User,
 ):
     conversation = get_authorized_conversation(
         conversation_id, db, current_user
@@ -102,6 +99,44 @@ def send_message(
             detail="Erro ao salvar mensagem",
         ) from exc
 
+    recipient_id = (
+        conversation.user_b_id
+        if conversation.user_a_id == current_user.id
+        else conversation.user_a_id
+    )
+    return message, recipient_id
+
+
+@router.post(
+    "/{conversation_id}/messages",
+    response_model=MessagePublic,
+    status_code=201,
+)
+async def send_message(
+    conversation_id: UUID,
+    data: MessageCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    message, recipient_id = await run_in_threadpool(
+        persist_http_message,
+        conversation_id,
+        data,
+        db,
+        current_user,
+    )
+    await manager.notify_user(
+        recipient_id,
+        {
+            "type": "notification",
+            "event_id": str(message.id),
+            "kind": "message",
+            "conversation_id": str(conversation_id),
+            "sender_id": str(current_user.id),
+            "body": message.body,
+            "created_at": message.created_at.isoformat(),
+        },
+    )
     return message
 
 

@@ -12,6 +12,7 @@ from app.Database.database import get_db
 from app.dependencies.current_user import get_current_user
 from app.models.user import User
 from app.models.friend_request import FriendRequest
+from app.realtime.manager import manager
 
 
 @pytest.fixture
@@ -75,6 +76,43 @@ def test_send_friend_request_returns_201(context):
     assert response.status_code == 201
     assert response.json()["status"] == "pending"
     db.commit.assert_called_once()
+
+
+def test_sent_friend_request_notifies_receiver_after_commit(context, monkeypatch):
+    client, db, me = context
+    receiver = User(
+        id=uuid4(),
+        username="amigo",
+        email="amigo@example.com",
+        friend_code="FM-ASDFGH23",
+    )
+    db.scalar.side_effect = [receiver, None]
+    request_id = uuid4()
+
+    def simulate_refresh(obj):
+        obj.id = request_id
+        obj.status = "pending"
+        obj.created_at = datetime.now(timezone.utc)
+
+    db.refresh.side_effect = simulate_refresh
+    notifications = []
+
+    async def record_notification(user_id, event):
+        notifications.append((user_id, event))
+
+    monkeypatch.setattr(manager, "notify_user", record_notification)
+
+    response = client.post(
+        "/api/v1/friends/requests",
+        json={"friend_code": receiver.friend_code},
+    )
+
+    assert response.status_code == 201
+    assert db.commit.call_count == 1
+    assert notifications[0][0] == receiver.id
+    assert notifications[0][1]["kind"] == "friend_request"
+    assert notifications[0][1]["request_id"] == str(request_id)
+    assert notifications[0][1]["sender_id"] == str(me.id)
 
 
 def test_duplicate_request_returns_409(context):

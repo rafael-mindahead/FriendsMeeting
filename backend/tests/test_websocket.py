@@ -179,6 +179,7 @@ def test_two_users_exchange_messages(context, monkeypatch):
     client, conversation_id, alice_id = context
     bob_id = uuid4()
     persisted = []
+    notifications = []
 
     def fake_access(token, requested_conversation):
         assert requested_conversation == conversation_id
@@ -206,6 +207,20 @@ def test_two_users_exchange_messages(context, monkeypatch):
     )
     monkeypatch.setattr(
         websocket_chat, "persist_ws_message", fake_persist
+    )
+    monkeypatch.setattr(
+        websocket_chat,
+        "get_conversation_recipient",
+        lambda requested_conversation, sender_id: bob_id,
+    )
+
+    async def record_notification(user_id, event):
+        notifications.append((user_id, event))
+
+    monkeypatch.setattr(
+        websocket_chat.manager,
+        "notify_user",
+        record_notification,
     )
 
     url = f"/api/v1/conversations/{conversation_id}/ws"
@@ -235,6 +250,9 @@ def test_two_users_exchange_messages(context, monkeypatch):
             assert bob_event["data"]["sender_id"] == str(alice_id)
 
     assert persisted == ["Ola, Bob!"]
+    assert notifications[0][0] == bob_id
+    assert notifications[0][1]["kind"] == "message"
+    assert notifications[0][1]["sender_id"] == str(alice_id)
     assert manager.active(conversation_id) == 0
 
 
@@ -270,6 +288,12 @@ def test_ws_rejects_invalid_message(context, monkeypatch, body):
 
 def test_ws_database_failure(context, monkeypatch):
     client, conversation_id, user_id = context
+
+    monkeypatch.setattr(
+        websocket_chat,
+        "get_conversation_recipient",
+        lambda requested_conversation, sender_id: uuid4(),
+    )
 
     def failing_persist(*args):
         raise HTTPException(503, "Banco indisponivel")
@@ -534,4 +558,3 @@ def test_late_subscriber_sees_existing_users(
             # apenas os eventos do protocolo que solicitar.
             bob.send_json({"type": "ping"})
             assert bob.receive_json() == {"type": "pong"}
-

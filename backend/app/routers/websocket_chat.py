@@ -112,6 +112,30 @@ def persist_ws_message(
             ) from exc
 
 
+def get_conversation_recipient(
+    conversation_id: UUID,
+    sender_id: UUID,
+) -> UUID:
+    with SessionLocal() as db:
+        conversation = db.get(Conversation, conversation_id)
+        if (
+            conversation is None
+            or sender_id not in (
+                conversation.user_a_id,
+                conversation.user_b_id,
+            )
+        ):
+            raise HTTPException(
+                status_code=404,
+                detail="Conversa nao encontrada",
+            )
+        return (
+            conversation.user_b_id
+            if sender_id == conversation.user_a_id
+            else conversation.user_a_id
+        )
+
+
 
 
 def load_missed_messages(
@@ -333,6 +357,20 @@ async def conversation_websocket(
                     continue
 
                 try:
+                    recipient_id = await run_in_threadpool(
+                        get_conversation_recipient,
+                        conversation_id,
+                        user_id,
+                    )
+                except HTTPException as exc:
+                    await websocket.send_json({
+                        "type": "error",
+                        "code": "message_not_saved",
+                        "status": exc.status_code,
+                    })
+                    continue
+
+                try:
                     saved = await run_in_threadpool(
                         persist_ws_message,
                         conversation_id,
@@ -359,6 +397,18 @@ async def conversation_websocket(
                         "data": saved,
                     },
                 )
+                await manager.notify_user(
+                    recipient_id,
+                    {
+                        "type": "notification",
+                        "event_id": saved["id"],
+                        "kind": "message",
+                        "conversation_id": str(conversation_id),
+                        "sender_id": str(user_id),
+                        "body": saved["body"],
+                        "created_at": saved["created_at"],
+                    },
+                )
                 continue
 
             # EVENTO DESCONHECIDO
@@ -382,4 +432,3 @@ async def conversation_websocket(
                    removed_user,
                    False,
                )
-

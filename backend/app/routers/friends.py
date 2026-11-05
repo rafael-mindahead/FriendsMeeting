@@ -1,18 +1,20 @@
 
 from datetime import datetime, timezone
 from typing import Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.Database.database import get_db
 from app.dependencies.current_user import get_current_user
 from app.models.friend_request import FriendRequest
 from app.models.user import User
+from app.realtime.manager import manager
 
 router = APIRouter(
     prefix="/api/v1/friends",
@@ -45,15 +47,10 @@ class FriendRequestPublic(BaseModel):
     sender_username: str | None = None
 
 
-@router.post(
-    "/requests",
-    response_model=FriendRequestPublic,
-    status_code=201,
-)
-def send_friend_request(
+def persist_friend_request(
     data: FriendRequestCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    db: Session,
+    current_user: User,
 ):
     receiver = db.scalar(
         select(User).where(
@@ -144,6 +141,36 @@ def send_friend_request(
             detail="Erro ao salvar solicitacao",
         ) from exc
 
+    return request
+
+
+@router.post(
+    "/requests",
+    response_model=FriendRequestPublic,
+    status_code=201,
+)
+async def send_friend_request(
+    data: FriendRequestCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    request = await run_in_threadpool(
+        persist_friend_request,
+        data,
+        db,
+        current_user,
+    )
+    await manager.notify_user(
+        request.receiver_id,
+        {
+            "type": "notification",
+            "event_id": str(uuid4()),
+            "kind": "friend_request",
+            "request_id": str(request.id),
+            "sender_id": str(current_user.id),
+            "sender_name": current_user.username,
+        },
+    )
     return request
 class FriendPublic(BaseModel):
     model_config = ConfigDict(from_attributes=True)

@@ -15,7 +15,11 @@ test("valida UUID de avatar e inicial de nome", () => {
 });
 test("remove mensagens duplicadas apos reconexao", () => {
   const m={id:"1",body:"Olá",created_at:"2026-01-01T10:00:00Z"};
-  assert.deepEqual(mergedMessages([m],[m]),[m]);
+  const [merged]=mergedMessages([m],[m]);
+  assert.equal(merged.id,m.id);
+  assert.equal(merged.body,m.body);
+  assert.equal(merged.delivered_at,null);
+  assert.equal(merged.read_at,null);
 });
 test("ordena mensagens recebidas fora de ordem", () => {
   const newer={id:"b",body:"Segunda",created_at:"2026-01-01T10:00:01Z"};

@@ -16,7 +16,7 @@ Acesse **http://localhost:8081** para a landing, **http://localhost:8081/app.htm
 ## Rotas e telas
 
 - **Entrar / cadastro:** `/app.html?mode=login` e `/app.html?mode=register`, ligados a `/api/v1/auth`.
-- **Chat:** mensagens via WebSocket, estado online, reconexão com backoff e recuperação com cursor. Um canal autenticado por usuário também entrega avisos de mensagens e convites recebidos.
+- **Chat:** mensagens via WebSocket, estado online, reconexão com backoff e recuperação com cursor. Confirmações mostram mensagem enviada, entregue ou visualizada; a visualização é registrada quando a mensagem aparece na tela com a aba em primeiro plano. Um canal autenticado por usuário também entrega avisos de mensagens e convites recebidos.
 - **Amigos:** convites por código, aceite/recusa e abertura da conversa.
 - **Meu perfil:** foto própria (2 MiB; PNG/JPG/WebP), nome, e-mail e código de amizade.
 - **Fotos de outros usuários:** carregadas da rota pública `/api/v1/users/{user_id}/avatar`, com fallback por iniciais.

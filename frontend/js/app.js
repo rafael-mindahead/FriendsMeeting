@@ -35,9 +35,11 @@ const state = {
   avatarRevision:"",socket:null,userEvents:null,
   notificationPreferences:{muted:false,volume:100,senders:[]},
   processedNotificationIds:new Set(),
+  deliveredAcknowledgements:new Set(),readAcknowledgements:new Set(),
   historyOffsets:new Map(),olderAvailable:new Map()
 };
 let soundUnlockReminderShown=false;
+let messageReadObserver=null;
 
 function demoData() {
   state.demo=true;
@@ -114,6 +116,8 @@ function render(){
   bindAvatarFallbacks(root);
   const messages=$("#messages",root);
   if(messages) messages.scrollTop=messages.scrollHeight;
+  observeIncomingMessages();
+  acknowledgeDeliveredMessages();
 }
 function refreshContactList(){
   const list=$("#contactList",root);
@@ -158,10 +162,16 @@ function refreshChat({forceScroll=false,updateMessages=false,preserveTop=false}=
   else scroll.scrollTop=forceScroll||nearBottom?scroll.scrollHeight:oldTop;
   const list=$("#contactList",root);
   if(list){list.innerHTML=contactItems(state);bindAvatarFallbacks(list);}
+  observeIncomingMessages();
+  acknowledgeDeliveredMessages();
 }
 function disconnect(){
   state.socket?.close();state.socket=null;
   state.connection="disconnected";
+  messageReadObserver?.disconnect();
+  messageReadObserver=null;
+  state.deliveredAcknowledgements.clear();
+  state.readAcknowledgements.clear();
 }
 function disconnectUserEvents(){
   state.userEvents?.close();
@@ -172,6 +182,7 @@ function connectUserEvents(){
   if(state.demo||!state.user)return;
   state.userEvents=new UserEventsConnection({
     notification:handleNotification,
+    message_status:handleMessageStatus,
     error:code=>console.warn("Evento de notificação rejeitado pelo servidor:",code),
     expired:async()=>{
       await logout();
@@ -181,6 +192,81 @@ function connectUserEvents(){
       toast("Sua sessão terminou. Entre novamente.");
     }
   });
+}
+function rememberAcknowledgement(set,messageId){
+  set.add(messageId);
+  if(set.size>1000)set.delete(set.values().next().value);
+}
+function acknowledgeDeliveredMessages(){
+  if(state.demo||!state.socket||state.connection!=="connected")return;
+  for(const message of state.messages.get(state.selectedId)||[]){
+    if(message.sender_id===state.user?.id||message.delivered_at||state.deliveredAcknowledgements.has(message.id))continue;
+    if(state.socket.send({type:"message_delivered",message_id:message.id})){
+      rememberAcknowledgement(state.deliveredAcknowledgements,message.id);
+    }
+  }
+}
+function acknowledgeMessageRead(message){
+  if(state.demo||!state.socket||state.connection!=="connected"
+    ||document.visibilityState!=="visible"
+    ||message.sender_id===state.user?.id
+    ||message.read_at
+    ||state.readAcknowledgements.has(message.id))return;
+  if(state.socket.send({type:"message_read",message_id:message.id})){
+    rememberAcknowledgement(state.readAcknowledgements,message.id);
+  }
+}
+function observeIncomingMessages(){
+  messageReadObserver?.disconnect();
+  messageReadObserver=null;
+  const container=$("#messages",root);
+  if(!container)return;
+  const incoming=container.querySelectorAll('.chat-message[data-incoming="true"]');
+  if(!incoming.length)return;
+  if("IntersectionObserver" in window){
+    messageReadObserver=new IntersectionObserver(entries=>{
+      if(document.visibilityState!=="visible")return;
+      for(const entry of entries){
+        if(!entry.isIntersecting)continue;
+        const message=(state.messages.get(state.selectedId)||[])
+          .find(item=>item.id===entry.target.dataset.messageId);
+        if(message)acknowledgeMessageRead(message);
+      }
+    },{root:container,threshold:0.01});
+    incoming.forEach(message=>messageReadObserver.observe(message));
+  }else{
+    reportVisibleMessages();
+  }
+}
+function reportVisibleMessages(){
+  if(document.visibilityState!=="visible"||state.view!=="chat"||!state.selectedId)return;
+  const container=$("#messages",root);
+  if(!container)return;
+  const bounds=container.getBoundingClientRect();
+  for(const element of container.querySelectorAll('.chat-message[data-incoming="true"]')){
+    const rect=element.getBoundingClientRect();
+    if(rect.bottom<=bounds.top||rect.top>=bounds.bottom||rect.right<=bounds.left||rect.left>=bounds.right)continue;
+    const message=(state.messages.get(state.selectedId)||[])
+      .find(item=>item.id===element.dataset.messageId);
+    if(message)acknowledgeMessageRead(message);
+  }
+}
+function handleMessageStatus(status){
+  if(!status||status.sender_id!==state.user?.id
+    ||typeof status.message_id!=="string"
+    ||typeof status.conversation_id!=="string")return;
+  const messages=state.messages.get(status.conversation_id);
+  if(!messages)return;
+  const message=messages.find(item=>item.id===status.message_id);
+  if(!message)return;
+  if(status.delivered_at)message.delivered_at=status.delivered_at;
+  if(status.read_at){
+    message.read_at=status.read_at;
+    message.delivered_at=status.delivered_at||message.delivered_at;
+  }
+  if(state.selectedId===status.conversation_id&&state.view==="chat"){
+    refreshChat({updateMessages:true});
+  }
 }
 function rememberNotification(eventId){
   if(state.processedNotificationIds.has(eventId))return false;
@@ -271,7 +357,11 @@ function updateSenderPreference(senderId,update){
 }
 function addMessages(id,items,{preserveTop=false}={}){
   state.messages.set(id,mergedMessages(state.messages.get(id)||[],items||[]));
-  if(state.selectedId===id && state.view==="chat")refreshChat({updateMessages:true,preserveTop});
+  if(state.selectedId===id && state.view==="chat"){
+    refreshChat({updateMessages:true,preserveTop});
+  }else if(state.socket?.id===id){
+    acknowledgeDeliveredMessages();
+  }
 }
 async function reloadMessages(id){
   if(state.demo || state.selectedId!==id)return;
@@ -314,7 +404,19 @@ async function selectConversation(id){
     state.socket=new ChatConnection(id,{
       cursor:()=>state.messages.get(id)?.at(-1)?.id||null,
       reload:()=>reloadMessages(id),
-      status:status=>{if(state.selectedId===id){state.connection=status;refreshChat();}},
+      status:status=>{
+        if(state.selectedId!==id)return;
+        state.connection=status;
+        if(status==="connecting"){
+          state.deliveredAcknowledgements.clear();
+          state.readAcknowledgements.clear();
+        }
+        refreshChat();
+        if(status==="connected"){
+          acknowledgeDeliveredMessages();
+          reportVisibleMessages();
+        }
+      },
       messages:incoming=>{if(state.selectedId===id)addMessages(id,incoming);},
       snapshot:users=>{if(state.selectedId===id){state.online=new Set(users);refreshChat();}},
       presence:event=>{
@@ -352,6 +454,7 @@ async function signOut(){
   state.selectedId=null;state.search="";state.avatarRevision="";
   state.notificationPreferences={muted:false,volume:100,senders:[]};
   state.processedNotificationIds.clear();
+  state.deliveredAcknowledgements.clear();state.readAcknowledgements.clear();
   state.historyOffsets.clear();state.olderAvailable.clear();
   history.replaceState(null,"","/app.html?mode=login");
   state.authMode="login";
@@ -450,7 +553,11 @@ root.addEventListener("keydown",event=>{
 document.addEventListener("visibilitychange",()=>{
   if(document.visibilityState!=="visible"||state.view!=="chat"||!state.selectedId)return;
   if(state.unreadMessages.delete(state.selectedId))refreshContactList();
+  reportVisibleMessages();
 });
+root.addEventListener("scroll",event=>{
+  if(event.target.id==="messages")reportVisibleMessages();
+},true);
 root.addEventListener("input",event=>{
   if(event.target.id==="contactSearch"){
     state.search=event.target.value;

@@ -5,8 +5,18 @@ import { icon } from "../lib/icons.js";
 export function renderMessageItems(state){
   const messages=state.messages.get(state.selectedId)||[];
   if(!messages.length) return `<div class="empty-state"><div class="empty-glyph">${icon("message-circle",40)}</div><h2>Sua primeira mensagem</h2><p>Que tal começar com um olá?</p></div>`;
-  const entries=messages.map(item=>`<article class="chat-message ${item.sender_id===state.user.id?"mine":""}">
-    <div class="message-bubble">${esc(item.body)}</div><time class="message-time" datetime="${esc(item.created_at)}">${fmtTime(item.created_at)}</time></article>`).join("");
+  const entries=messages.map(item=>{
+    const mine=item.sender_id===state.user.id;
+    const receipt=mine
+      ?item.read_at
+        ?`<span class="message-receipt read" role="img" aria-label="Visualizada" title="Visualizada">${icon("check-double",17)}</span>`
+        :item.delivered_at
+          ?`<span class="message-receipt" role="img" aria-label="Entregue" title="Entregue">${icon("check-double",17)}</span>`
+          :`<span class="message-receipt" role="img" aria-label="Enviada" title="Enviada">${icon("check",17)}</span>`
+      :"";
+    return `<article class="chat-message ${mine?"mine":""}" data-message-id="${esc(item.id)}" data-sender-id="${esc(item.sender_id)}" data-incoming="${!mine}">
+      <div class="message-bubble">${esc(item.body)}</div><div class="message-meta"><time class="message-time" datetime="${esc(item.created_at)}">${fmtTime(item.created_at)}</time>${receipt}</div></article>`;
+  }).join("");
   const more=state.olderAvailable?.get(state.selectedId)?`<button type="button" class="load-older" data-action="load-older">Carregar mensagens anteriores</button>`:"";
   return more+entries;
 }

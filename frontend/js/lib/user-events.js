@@ -44,6 +44,8 @@ export class UserEventsConnection {
         this.heartbeat=setInterval(()=>this.send({type:"ping"}),25000);
       } else if(packet.type==="notification") {
         this.emit("notification",packet);
+      } else if(packet.type==="message_status") {
+        this.emit("message_status",packet.data);
       } else if(packet.type==="error") {
         this.emit("error",packet.code||"event_error");
       }

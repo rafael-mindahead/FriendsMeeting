@@ -23,6 +23,16 @@ function render(item){
   });
 }
 
+function renderMessages(messages,options={}){
+  return renderMessageItems({
+    user,
+    selectedId:"conversation-1",
+    messages:new Map([["conversation-1",messages]]),
+    olderAvailable:new Map(),
+    ...options
+  });
+}
+
 test("shows one white check for a sent message",()=>{
   const html=render(message());
   assert.match(html,/message-receipt" role="img" aria-label="Enviada"/);
@@ -61,4 +71,35 @@ test("message refresh cannot regress a saved delivery or read receipt",()=>{
   );
   assert.equal(merged[0].delivered_at,"2026-11-05T12:00:01Z");
   assert.equal(merged[0].read_at,"2026-11-05T12:00:02Z");
+});
+
+test("places the new messages divider before the first unread received message",()=>{
+  const html=renderMessages([
+    message({id:"old",sender_id:"friend-1",read_at:"2026-11-05T12:00:01Z"}),
+    message({id:"mine"}),
+    message({id:"new-1",sender_id:"friend-1"}),
+    message({id:"new-2",sender_id:"friend-1"})
+  ]);
+
+  assert.equal((html.match(/class="unread-divider"/g)||[]).length,1);
+  assert.ok(html.indexOf('class="unread-divider"')<html.indexOf('data-message-id="new-1"'));
+  assert.ok(html.indexOf('class="unread-divider"')>html.indexOf('data-message-id="mine"'));
+  assert.match(html,/Novas mensagens/);
+});
+
+test("hides the new messages divider after every received message is read",()=>{
+  const html=renderMessages([
+    message({id:"read-1",sender_id:"friend-1",read_at:"2026-11-05T12:00:01Z"}),
+    message({id:"read-2",sender_id:"friend-1",read_at:"2026-11-05T12:00:02Z"})
+  ]);
+
+  assert.doesNotMatch(html,/unread-divider/);
+});
+
+test("can immediately dismiss the divider after sending a message",()=>{
+  const html=renderMessages([
+    message({id:"unread",sender_id:"friend-1"})
+  ],{unreadDividerDismissed:new Set(["conversation-1"])});
+
+  assert.doesNotMatch(html,/unread-divider/);
 });

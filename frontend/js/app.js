@@ -37,6 +37,7 @@ const state = {
   view:"chat",search:"",selectedId:null, friends:[],requests:[],conversations:[],
   messages:new Map(),online:new Set(),connection:"disconnected",
   unreadMessages:new Map(),
+  unreadDividerDismissed:new Set(),
   avatarRevision:"",socket:null,userEvents:null,
   notificationPreferences:{muted:false,volume:100,senders:[]},
   processedNotificationIds:new Set(),
@@ -225,13 +226,18 @@ function acknowledgeMessageRead(message){
     ||message.read_at
     ||state.readAcknowledgements.has(message.id))return;
   if(state.socket.send({type:"message_read",message_id:message.id})){
-    rememberAcknowledgement(state.readAcknowledgements,message.id);
-    message.read_at=new Date().toISOString();
-    message.delivered_at=message.delivered_at||message.read_at;
+      const messages=state.messages.get(message.conversation_id)||[];
+      const firstUnread=messages.find(item=>item.sender_id!==state.user?.id&&!item.read_at);
+      rememberAcknowledgement(state.readAcknowledgements,message.id);
+      message.read_at=new Date().toISOString();
+      message.delivered_at=message.delivered_at||message.read_at;
     const unread=state.unreadMessages.get(message.conversation_id)||0;
     if(unread<=1)state.unreadMessages.delete(message.conversation_id);
     else state.unreadMessages.set(message.conversation_id,unread-1);
     refreshContactList();
+    if(firstUnread?.id===message.id){
+      refreshChat({updateMessages:true});
+    }
   }
 }
 function observeIncomingMessages(){
@@ -392,16 +398,33 @@ function addMessages(id,items,{preserveTop=false}={}){
     acknowledgeDeliveredMessages();
   }
 }
+function countUnreadMessages(id){
+  return (state.messages.get(id)||[]).filter(
+    message=>message.sender_id!==state.user?.id&&!message.read_at
+  ).length;
+}
 async function reloadMessages(id){
   if(state.demo || state.selectedId!==id)return;
   try{
     const incoming=await getHistory(id,40,0);
-    if(state.selectedId===id){
-      if(!state.historyOffsets.has(id)){
-        state.historyOffsets.set(id,incoming.length);
-        state.olderAvailable.set(id,incoming.length===40);
-      }
-      addMessages(id,incoming);
+    if(state.selectedId!==id)return;
+    if(!state.historyOffsets.has(id)){
+      state.historyOffsets.set(id,incoming.length);
+      state.olderAvailable.set(id,incoming.length===40);
+    }
+    addMessages(id,incoming);
+
+    while(
+      state.selectedId===id
+      &&countUnreadMessages(id)<(state.unreadMessages.get(id)||0)
+      &&state.olderAvailable.get(id)
+    ){
+      const offset=state.historyOffsets.get(id)||0;
+      const older=await getHistory(id,40,offset);
+      if(state.selectedId!==id)return;
+      state.historyOffsets.set(id,offset+older.length);
+      state.olderAvailable.set(id,older.length===40);
+      if(older.length)addMessages(id,older,{preserveTop:true});
     }
   }catch(error){toast(error.message);}
 }
@@ -422,6 +445,7 @@ async function selectConversation(id){
   if(!state.conversations.some(item=>item.id===id))return;
   disconnect();
   state.view="chat";state.selectedId=id;
+  state.unreadDividerDismissed.delete(id);
   state.online=state.demo?new Set(["demo-vinicius","demo-marina"]):new Set();
   state.connection=state.demo?"demo":"connecting";
   render();
@@ -479,6 +503,7 @@ async function signOut(){
   state.demo=false;state.user=null;state.friends=[];state.requests=[];
   state.conversations=[];state.messages.clear();state.online.clear();
   state.unreadMessages.clear();
+  state.unreadDividerDismissed.clear();
   state.selectedId=null;state.search="";state.avatarRevision="";
   state.notificationPreferences={muted:false,volume:100,senders:[]};
   state.processedNotificationIds.clear();
@@ -571,6 +596,8 @@ root.addEventListener("submit",async event=>{
     if(!state.socket?.send({type:"send_message",body})){
       toast("Aguarde a conexão para enviar.");return;
     }
+    state.unreadDividerDismissed.add(state.selectedId);
+    refreshChat({updateMessages:true});
     field.value="";
   }
 });

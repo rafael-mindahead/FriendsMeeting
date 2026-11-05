@@ -5,6 +5,9 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 class ConnectionManager:
     def __init__(self):
+        self.user_connections: dict[
+            UUID, set[WebSocket]
+        ] = {}
         # Conversa -> conexao -> usuario
         self.rooms: dict[
             UUID, dict[WebSocket, UUID | None]
@@ -14,6 +17,41 @@ class ConnectionManager:
         self.subscribers: dict[
             UUID, set[WebSocket]
         ] = {}
+
+    def add_user(
+        self,
+        user_id: UUID,
+        websocket: WebSocket,
+    ) -> None:
+        self.user_connections.setdefault(user_id, set()).add(websocket)
+
+    def remove_user(
+        self,
+        user_id: UUID,
+        websocket: WebSocket,
+    ) -> None:
+        connections = self.user_connections.get(user_id)
+        if connections is None:
+            return
+
+        connections.discard(websocket)
+        if not connections:
+            self.user_connections.pop(user_id, None)
+
+    async def notify_user(
+        self,
+        user_id: UUID,
+        event: dict,
+    ) -> None:
+        for websocket in tuple(self.user_connections.get(user_id, set())):
+            try:
+                await websocket.send_json(event)
+            except (
+                WebSocketDisconnect,
+                RuntimeError,
+                OSError,
+            ):
+                self.remove_user(user_id, websocket)
 
     def add(
         self,

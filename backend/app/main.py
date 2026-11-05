@@ -13,6 +13,8 @@ from app.routers.messages import router as messages_router
 
 from app.routers.websocket_chat import router as websocket_router
 from app.routers.avatars import router as avatars_router
+from app.routers.notifications import router as notifications_router
+from app.routers.user_events import router as user_events_router
 
 app = FastAPI(
     title = "FriendsMeeting API",
@@ -26,6 +28,8 @@ app.include_router(conversations_router)
 app.include_router(messages_router)
 app.include_router(websocket_router)
 app.include_router(avatars_router)
+app.include_router(notifications_router)
+app.include_router(user_events_router)
 
 @app.get("/api/v1/health")
 def health_check():

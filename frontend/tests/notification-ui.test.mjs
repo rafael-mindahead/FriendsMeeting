@@ -14,6 +14,7 @@ const state={
   conversations:[{id:"conversation-1",user_a_id:"me",user_b_id:"friend-1"}],
   messages:new Map(),
   online:new Set(),
+  typingUsers:new Map(),
   unreadMessages:new Map([["conversation-1",3]]),
   notificationPreferences:{
     muted:false,
@@ -33,6 +34,25 @@ test("shows unread message count and per-contact sound controls in conversation 
   assert.match(html,/value="45" data-original-value="45" data-notification-sender-volume/);
   assert.match(html,/Volume da notificação/);
   assert.match(html,/aria-label="Volume da notificação de Amiga"/);
+});
+
+test("replaces the latest sent message with the friend's typing status",()=>{
+  const typingState={
+    ...state,
+    messages:new Map([["conversation-1",[{
+      id:"message-1",
+      sender_id:"me",
+      body:"seu pilantra",
+      created_at:"2026-11-05T12:00:00Z"
+    }]]]),
+    typingUsers:new Map([
+      ["conversation-1",new Map([["friend-1",{timer:1}]])]
+    ])
+  };
+  const html=contactItems(typingState);
+
+  assert.match(html,/<small class="typing-preview">Amiga está digitando\.\.\.<\/small>/);
+  assert.doesNotMatch(html,/seu pilantra/);
 });
 
 test("shows the friend-request indicator on the friends navigation icon",()=>{

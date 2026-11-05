@@ -18,6 +18,9 @@ export function contactItems(state){
     const person=friendFor(state,conversation);
     const messages=state.messages.get(conversation.id)||[];
     const latest=messages.at(-1);
+    const typingUserId=state.typingUsers?.get(conversation.id)?.keys().next().value;
+    const typingUser=state.friends?.find(friend=>friend.id===typingUserId)||person;
+    const typing=Boolean(typingUserId);
     const selected=state.selectedId===conversation.id;
     const unread=state.unreadMessages?.get(conversation.id)||0;
     const unreadLabel=unread===1?"1 mensagem não lida":`${unread} mensagens não lidas`;
@@ -30,7 +33,7 @@ export function contactItems(state){
     return `<div class="contact-item ${selected?"active":""}">
       <button class="contact-main" type="button" data-action="select-conversation" data-id="${esc(conversation.id)}" aria-current="${selected?"true":"false"}">
         ${avatar(person)}<span class="contact-data"><strong>${esc(person.username)}</strong>
-        <small>${latest?esc(latest.body):"Iniciar conversa"}</small></span>
+        <small class="${typing?"typing-preview":""}">${typing?`${esc(typingUser.username)} está digitando...`:latest?esc(latest.body):"Iniciar conversa"}</small></span>
         <span class="contact-extra">${soundMuted?`${icon("bell-off",15)}<span class="visually-hidden">Som silenciado</span>`:state.online.has(person.id)?"●":""}</span>
       </button>
       ${unread?`<span class="unread-badge" aria-label="${unreadLabel}">${unread>99?"99+":unread}</span>`:""}

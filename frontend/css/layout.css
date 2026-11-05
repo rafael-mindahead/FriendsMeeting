@@ -33,3 +33,4 @@
 @media(hover:none){
   .contact-options summary{opacity:1;pointer-events:auto;transform:none}
 }
+.contact-data small.typing-preview{color:var(--mint)}

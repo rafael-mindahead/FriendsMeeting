@@ -220,6 +220,9 @@ async def conversation_websocket(
 ):
     await websocket.accept()
     registered = False
+    user_id = None
+    typing_recipient_id = None
+    typing_recipient_lookup_failed = False
 
     try:
         try:
@@ -352,6 +355,48 @@ async def conversation_websocket(
                 })
                 continue
 
+            if event_type in ("typing:start", "typing:stop"):
+                if event_type == "typing:start":
+                    if typing_recipient_lookup_failed:
+                        continue
+                    try:
+                        if typing_recipient_id is None:
+                            typing_recipient_id = await run_in_threadpool(
+                                get_conversation_recipient,
+                                conversation_id,
+                                user_id,
+                            )
+                    except HTTPException as exc:
+                        await websocket.send_json({
+                            "type": "error",
+                            "code": "typing_unavailable",
+                            "status": exc.status_code,
+                        })
+                        typing_recipient_lookup_failed = True
+                        continue
+
+                    manager.start_typing(
+                        conversation_id,
+                        websocket,
+                        user_id,
+                    )
+                elif not manager.stop_typing(
+                    conversation_id,
+                    websocket,
+                    user_id,
+                ):
+                    continue
+
+                await manager.notify_user(
+                    typing_recipient_id,
+                    {
+                        "type": event_type,
+                        "conversation_id": str(conversation_id),
+                        "sender_id": str(user_id),
+                    },
+                )
+                continue
+
             # CONFIRMACAO DE ENTREGA OU VISUALIZACAO
             if event_type in ("message_delivered", "message_read"):
                 try:
@@ -400,6 +445,20 @@ async def conversation_websocket(
 
             # ENVIO DE MENSAGENS
             if event_type == "send_message":
+                if manager.stop_typing(
+                    conversation_id,
+                    websocket,
+                    user_id,
+                ) and typing_recipient_id is not None:
+                    await manager.notify_user(
+                        typing_recipient_id,
+                        {
+                            "type": "typing:stop",
+                            "conversation_id": str(conversation_id),
+                            "sender_id": str(user_id),
+                        },
+                    )
+
                 try:
                     payload = MessageCreate.model_validate({
                         "body": event.get("body"),
@@ -477,6 +536,22 @@ async def conversation_websocket(
         await websocket.close(code=1003)
     finally:
         if registered:
+           if (
+               typing_recipient_id is not None
+               and manager.stop_typing(
+                   conversation_id,
+                   websocket,
+                   user_id,
+               )
+           ):
+               await manager.notify_user(
+                   typing_recipient_id,
+                   {
+                       "type": "typing:stop",
+                       "conversation_id": str(conversation_id),
+                       "sender_id": str(user_id),
+                   },
+               )
            removed_user, became_offline = manager.remove(
                conversation_id,
                websocket,

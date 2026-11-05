@@ -17,6 +17,9 @@ class ConnectionManager:
         self.subscribers: dict[
             UUID, set[WebSocket]
         ] = {}
+        self.typing_connections: dict[
+            UUID, dict[UUID, set[WebSocket]]
+        ] = {}
 
     def add_user(
         self,
@@ -109,6 +112,40 @@ class ConnectionManager:
             self.rooms.pop(conversation_id, None)
 
         return user_id, became_offline
+
+    def start_typing(
+        self,
+        conversation_id: UUID,
+        websocket: WebSocket,
+        user_id: UUID,
+    ) -> None:
+        users = self.typing_connections.setdefault(
+            conversation_id, {}
+        )
+        users.setdefault(user_id, set()).add(websocket)
+
+    def stop_typing(
+        self,
+        conversation_id: UUID,
+        websocket: WebSocket,
+        user_id: UUID,
+    ) -> bool:
+        users = self.typing_connections.get(conversation_id)
+        if users is None:
+            return False
+
+        sockets = users.get(user_id)
+        if sockets is None:
+            return False
+
+        sockets.discard(websocket)
+        if sockets:
+            return False
+
+        users.pop(user_id, None)
+        if not users:
+            self.typing_connections.pop(conversation_id, None)
+        return True
 
     def active(self, conversation_id: UUID) -> int:
         return len(

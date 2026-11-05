@@ -7,6 +7,8 @@ const paths = {
   send: '<path d="m22 2-7 20-4-9-9-4 20-7ZM22 2 11 13"/>',
   "arrow-left": '<path d="m12 19-7-7 7-7M19 12H5"/>',
   refresh: '<path d="M20 11a8 8 0 0 0-14-5L3 9m0-6v6h6M4 13a8 8 0 0 0 14 5l3-3m0 6v-6h-6"/>',
+  "chevron-down": '<path d="m6 9 6 6 6-6"/>',
+  "bell-off": '<path d="M10.3 5.3A6 6 0 0 1 18 11v3l2 2H8"/><path d="M6.3 6.3A6 6 0 0 0 6 8v6l-2 2h11"/><path d="M10 20a2 2 0 0 0 4 0M3 3l18 18"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   moon: '<path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5 8.5 8.5 0 1 0 20.5 14.5Z"/>',
   monitor: '<rect x="2" y="3" width="20" height="15" rx="2"/><path d="M8 22h8m-4-4v4"/>',

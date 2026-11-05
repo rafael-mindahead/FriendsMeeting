@@ -2,3 +2,34 @@
 
 .rail-button svg,.icon-button svg{display:block;flex:none}
 .rail-button{font-size:inherit}
+.rail-button .rail-icon-wrap{position:relative;inset:auto;bottom:auto;display:grid;place-items:center;font-size:inherit}
+.rail-button .friend-invite-indicator{position:absolute;top:-8px;right:-13px;bottom:auto;min-width:24px;height:20px;padding:0 5px;display:grid;place-items:center;border:2px solid var(--surface);border-radius:999px;background:#c96d73;color:#fff;font-size:10px;font-weight:750;line-height:1;font-variant-numeric:tabular-nums}
+
+.contact-item{position:relative;display:grid;grid-template-columns:minmax(0,1fr) 30px;gap:4px;padding:4px 5px 4px 4px;transition:background .16s}
+.contact-item:hover,.contact-item:focus-within{background:var(--surface-2)}
+.contact-item.active{background:var(--surface-3)}
+.contact-main{grid-column:1;width:100%;min-width:0;display:flex;align-items:center;gap:11px;padding:8px;border:0;border-radius:10px;text-align:left;color:var(--text);background:transparent}
+.contact-main:hover{background:transparent}
+.contact-item .contact-extra{margin-left:auto}
+.contact-extra svg{display:block;color:var(--muted)}
+.visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.unread-badge{position:absolute;z-index:2;right:9px;top:50%;min-width:22px;height:22px;padding:0 6px;display:grid;place-items:center;border-radius:999px;background:#c96d73;color:#fff;font-size:11px;font-weight:750;font-variant-numeric:tabular-nums;transform:translateY(-50%);transition:transform .18s var(--ease)}
+.contact-item:hover .unread-badge,.contact-item:focus-within .unread-badge,.contact-item:has(.contact-options[open]) .unread-badge{transform:translate(calc(-50% - 19px),-50%)}
+.contact-options{grid-column:2;justify-self:end;position:relative;z-index:3;width:30px}
+.contact-options summary{display:grid;place-items:center;width:30px;height:34px;list-style:none;border-radius:9px;color:var(--muted);opacity:0;pointer-events:none;cursor:pointer;transform:translateX(4px) scale(.9);transition:opacity .16s var(--ease),transform .18s var(--ease),background .15s}
+.contact-options summary::-webkit-details-marker{display:none}
+.contact-options summary:hover{background:var(--surface-3);color:var(--text)}
+.contact-options[open] summary,.contact-item:hover .contact-options summary,.contact-item:focus-within .contact-options summary{opacity:1;pointer-events:auto;transform:translateX(0) scale(1)}
+.contact-options-menu{position:absolute;right:0;top:calc(100% + 5px);width:min(270px,calc(100vw - 32px));padding:15px;border:1px solid var(--border);border-radius:14px;background:var(--surface);box-shadow:var(--shadow);color:var(--text)}
+.contact-options-menu>strong{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+.contact-options-menu .notification-toggle{margin:12px 0}
+.contact-options-menu .notification-toggle input{appearance:none;width:19px;height:19px;flex:none;display:grid;place-items:center;border:1px solid var(--border);border-radius:7px;background:var(--surface-2);cursor:pointer}
+.contact-options-menu .notification-toggle input:checked{border-color:var(--mint);background:var(--mint)}
+.contact-options-menu .notification-toggle input:checked::after{content:"";width:5px;height:9px;border:solid var(--mint-ink);border-width:0 2px 2px 0;transform:rotate(45deg) translate(-1px,-1px)}
+.contact-options-menu .notification-volume-label{margin:12px 0 7px;font-size:12px}
+.contact-options-menu .button.text-button{margin-top:8px;padding:6px 0;font-size:12px}
+.contact-options[open]{z-index:5}
+
+@media(hover:none){
+  .contact-options summary{opacity:1;pointer-events:auto;transform:none}
+}

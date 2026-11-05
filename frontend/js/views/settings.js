@@ -7,6 +7,7 @@ const choice=(value,label,icon,selected)=>
 
 export function renderSettings(state){
   const selected=preference();
+  const notificationPreferences=state.notificationPreferences||{muted:false,volume:100,senders:[]};
   return `<header class="panel-header"><div><h1>Configurações</h1><p>Aparência, conta e privacidade.</p></div></header>
     <div class="section-content">
       <section class="card-section"><h2>Aparência</h2><p class="section-subtitle">Escolha o tema. A opção automática acompanha o dispositivo.</p>
@@ -15,6 +16,19 @@ export function renderSettings(state){
         ${choice("dark","Escuro",icon("moon",25),selected)}
         ${choice("system","Automático",icon("monitor",25),selected)}
       </div></section>
+      <section class="card-section"><h2>Notificações</h2>
+        <p class="section-subtitle">Os avisos visuais continuam ativos. Ajuste o som de cada pessoa pelo menu de opções ao lado da conversa.</p>
+        <label class="notification-toggle"><input type="checkbox" id="notificationMuted" ${notificationPreferences.muted?"checked":""}>
+          <span>Silenciar todos os sons</span></label>
+        <label class="notification-volume-label" for="notificationVolume">
+          Volume geral <output id="notificationVolumeOutput">${notificationPreferences.volume}%</output>
+        </label>
+        <input id="notificationVolume" class="notification-volume" type="range" min="0" max="100" step="5" value="${notificationPreferences.volume}" data-original-value="${notificationPreferences.volume}" aria-label="Volume geral das notificações">
+        <div class="notification-sound-actions">
+          <button class="button ghost" type="button" data-action="test-notification-sound">Testar som</button>
+          <span class="section-subtitle">O navegador pode exigir este teste para autorizar áudio.</span>
+        </div>
+      </section>
       <section class="card-section"><h2>Sua conta</h2>
         <div class="settings-row"><div><h3>Perfil e foto</h3><p>Foto e código de amizade.</p></div><button class="button ghost" data-action="tab" data-tab="profile">Meu perfil</button></div>
         <div class="settings-row"><div><h3>Sair da conta</h3><p>Encerra esta sessão no navegador.</p></div><button class="button danger" data-action="logout">Sair</button></div>

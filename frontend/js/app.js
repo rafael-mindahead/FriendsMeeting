@@ -6,9 +6,23 @@ import { accessToken } from "./lib/session.js";
 import { getFriends, getRequests, getConversations, sendInvite, decideInvite } from "./lib/friends.js";
 import { createConversation, getHistory, mergedMessages } from "./lib/conversations.js";
 import { ChatConnection } from "./lib/realtime.js";
+import { UserEventsConnection } from "./lib/user-events.js";
+import {
+  cachedNotificationPreferences,
+  loadNotificationPreferences,
+  resetSenderNotificationPreferences,
+  saveNotificationPreferences,
+  saveSenderNotificationPreferences
+} from "./lib/notification-preferences.js";
+import {
+  claimNotificationSound,
+  notificationVolume,
+  playNotificationSound
+} from "./lib/notification-audio.js";
 import { showAuth } from "./views/auth.js";
 import { renderShell, contactItems } from "./views/shell.js";
 import { renderMessageItems } from "./views/chat.js";
+import { renderSettings } from "./views/settings.js";
 
 initializeTheme();
 const root = $("#appRoot");
@@ -17,8 +31,13 @@ const state = {
   demo:false,user:null,authMode:params.get("mode")==="register"?"register":"login",
   view:"chat",search:"",selectedId:null, friends:[],requests:[],conversations:[],
   messages:new Map(),online:new Set(),connection:"disconnected",
-  avatarRevision:"",socket:null,historyOffsets:new Map(),olderAvailable:new Map()
+  unreadMessages:new Map(),
+  avatarRevision:"",socket:null,userEvents:null,
+  notificationPreferences:{muted:false,volume:100,senders:[]},
+  processedNotificationIds:new Set(),
+  historyOffsets:new Map(),olderAvailable:new Map()
 };
+let soundUnlockReminderShown=false;
 
 function demoData() {
   state.demo=true;
@@ -49,6 +68,7 @@ function demoData() {
 }
 function showLogin(){
   disconnect();
+  disconnectUserEvents();
   showAuth({
     mode:state.authMode,
     onMode:mode=>{state.authMode=mode;history.replaceState(null,"", "/app.html?mode="+mode);showLogin();},
@@ -65,9 +85,17 @@ function showLogin(){
       await login(email,password);
       state.user=await me();
       await loadLists();
+      try{
+        state.notificationPreferences=await loadNotificationPreferences(state.user.id);
+      }catch(error){
+        state.notificationPreferences=cachedNotificationPreferences(state.user.id);
+        toast("Não foi possível sincronizar as preferências de notificação. Usando o último valor salvo neste navegador.");
+        console.error("Falha ao carregar preferências de notificação.",error);
+      }
       state.view="chat";state.selectedId=null;
       history.replaceState(null,"","/app.html");
       render();
+      connectUserEvents();
     }
   });
 }
@@ -86,6 +114,27 @@ function render(){
   bindAvatarFallbacks(root);
   const messages=$("#messages",root);
   if(messages) messages.scrollTop=messages.scrollHeight;
+}
+function refreshContactList(){
+  const list=$("#contactList",root);
+  if(list){list.innerHTML=contactItems(state);bindAvatarFallbacks(list);}
+}
+function refreshFriendIndicator(){
+  const button=root.querySelector('.rail-button[data-tab="friends"]');
+  if(!button)return;
+  const indicator=button.querySelector(".friend-invite-indicator");
+  if(!state.requests.length){
+    indicator?.remove();
+  }else if(indicator){
+    indicator.textContent=`+${state.requests.length}`;
+  }else{
+    const badge=document.createElement("span");
+    badge.className="friend-invite-indicator";
+    badge.setAttribute("aria-hidden","true");
+    badge.textContent=`+${state.requests.length}`;
+    button.querySelector(".rail-icon-wrap")?.append(badge);
+  }
+  button.setAttribute("aria-label",`Amigos${state.requests.length?`, ${state.requests.length} convite${state.requests.length===1?"":"s"} pendente${state.requests.length===1?"":"s"}`:""}`);
 }
 // Update conversation content without replacing composer focus or rascunhos.
 function refreshChat({forceScroll=false,updateMessages=false,preserveTop=false}={}){
@@ -113,6 +162,112 @@ function refreshChat({forceScroll=false,updateMessages=false,preserveTop=false}=
 function disconnect(){
   state.socket?.close();state.socket=null;
   state.connection="disconnected";
+}
+function disconnectUserEvents(){
+  state.userEvents?.close();
+  state.userEvents=null;
+}
+function connectUserEvents(){
+  disconnectUserEvents();
+  if(state.demo||!state.user)return;
+  state.userEvents=new UserEventsConnection({
+    notification:handleNotification,
+    error:code=>console.warn("Evento de notificação rejeitado pelo servidor:",code),
+    expired:async()=>{
+      await logout();
+      state.user=null;
+      state.selectedId=null;
+      showLogin();
+      toast("Sua sessão terminou. Entre novamente.");
+    }
+  });
+}
+function rememberNotification(eventId){
+  if(state.processedNotificationIds.has(eventId))return false;
+  state.processedNotificationIds.add(eventId);
+  if(state.processedNotificationIds.size>500){
+    state.processedNotificationIds.delete(state.processedNotificationIds.values().next().value);
+  }
+  return true;
+}
+function senderName(senderId,event){
+  return event.sender_name
+    ||state.friends.find(friend=>friend.id===senderId)?.username
+    ||"Seu amigo";
+}
+function handleNotification(event){
+  if(!event||typeof event.event_id!=="string"||!event.event_id)return;
+  if(!rememberNotification(event.event_id))return;
+  if(event.sender_id===state.user?.id)return;
+
+  const senderId=event.sender_id;
+  const name=senderName(senderId,event);
+  if(event.kind==="message"){
+    const visibleInOpenChat=state.view==="chat"
+      &&state.selectedId===event.conversation_id
+      &&document.visibilityState==="visible";
+    const message={
+      id:event.event_id,
+      conversation_id:event.conversation_id,
+      sender_id:senderId,
+      body:event.body||"",
+      created_at:event.created_at
+    };
+    if(message.conversation_id)addMessages(message.conversation_id,[message]);
+    if(!visibleInOpenChat){
+      const unread=state.unreadMessages.get(event.conversation_id)||0;
+      state.unreadMessages.set(event.conversation_id,unread+1);
+      refreshContactList();
+      toast(`Nova mensagem de ${name}.`);
+    }
+  }else if(event.kind==="friend_request"){
+    toast(`${name} enviou um convite de amizade.`);
+    loadLists().then(()=>{
+      if(state.view==="friends")render();
+      else if(state.view==="settings")refreshSettings();
+      refreshFriendIndicator();
+    }).catch(error=>toast(`O convite chegou, mas não foi possível atualizar a lista: ${error.message}`));
+  }else{
+    return;
+  }
+
+  const volume=notificationVolume(state.notificationPreferences,senderId);
+  if(volume===0)return;
+  claimNotificationSound(event.event_id).then(async claimed=>{
+    if(!claimed)return;
+    try{
+      const played=await playNotificationSound(volume);
+      if(!played&&!soundUnlockReminderShown){
+        soundUnlockReminderShown=true;
+        toast("Para ativar o som, use “Testar som” nas configurações.");
+      }
+    }catch(error){
+      console.error("Não foi possível reproduzir o som da notificação.",error);
+      if(!soundUnlockReminderShown){
+        soundUnlockReminderShown=true;
+        toast("Não foi possível reproduzir o som neste navegador.");
+      }
+    }
+  }).catch(error=>{
+    console.error("Não foi possível deduplicar o som da notificação.",error);
+  });
+}
+function refreshSettings(){
+  if(state.view!=="settings")return;
+  const main=$("#appMain",root);
+  if(main)main.innerHTML=renderSettings(state);
+}
+function replaceNotificationPreferences(preferences){
+  state.notificationPreferences=preferences;
+  refreshSettings();
+  refreshContactList();
+}
+function updateSenderPreference(senderId,update){
+  const preferences=state.notificationPreferences;
+  const current=preferences.senders.find(item=>item.user_id===senderId);
+  const next={user_id:senderId,muted:false,volume_factor:100,...current,...update};
+  preferences.senders=preferences.senders.filter(item=>item.user_id!==senderId);
+  preferences.senders.push(next);
 }
 function addMessages(id,items,{preserveTop=false}={}){
   state.messages.set(id,mergedMessages(state.messages.get(id)||[],items||[]));
@@ -148,6 +303,7 @@ async function selectConversation(id){
   if(!state.conversations.some(item=>item.id===id))return;
   disconnect();
   state.view="chat";state.selectedId=id;
+  state.unreadMessages.delete(id);
   state.online=state.demo?new Set(["demo-vinicius","demo-marina"]):new Set();
   state.connection=state.demo?"demo":"connecting";
   render();
@@ -188,10 +344,14 @@ async function openFriend(id){
 }
 async function signOut(){
   disconnect();
+  disconnectUserEvents();
   if(!state.demo)await logout();
   state.demo=false;state.user=null;state.friends=[];state.requests=[];
   state.conversations=[];state.messages.clear();state.online.clear();
+  state.unreadMessages.clear();
   state.selectedId=null;state.search="";state.avatarRevision="";
+  state.notificationPreferences={muted:false,volume:100,senders:[]};
+  state.processedNotificationIds.clear();
   state.historyOffsets.clear();state.olderAvailable.clear();
   history.replaceState(null,"","/app.html?mode=login");
   state.authMode="login";
@@ -229,6 +389,16 @@ root.addEventListener("click",async event=>{
       await loadLists();render();toast(action==="accept"?"Convite aceito.":"Convite recusado.");
     } else if(action==="theme"){
       setTheme(button.dataset.theme);render();
+    } else if(action==="test-notification-sound"){
+      const volume=notificationVolume(state.notificationPreferences,null);
+      if(volume===0)return toast("Ajuste o volume geral e desative o silêncio para testar o som.");
+      const played=await playNotificationSound(volume);
+      toast(played?"Som de notificação reproduzido.":"O navegador não autorizou a reprodução de áudio.");
+    } else if(action==="reset-notification-sender"){
+      if(state.demo)return toast("Entre na sua conta para salvar preferências.");
+      const preferences=await resetSenderNotificationPreferences(state.user.id,button.dataset.id);
+      replaceNotificationPreferences(preferences);
+      toast("Volume do contato restaurado ao padrão.");
     } else if(action==="remove-avatar"){
       if(state.demo)return toast("Entre na sua conta para alterar sua foto.");
       await deleteAvatar();state.avatarRevision="deleted-"+Date.now();
@@ -277,13 +447,88 @@ root.addEventListener("keydown",event=>{
     event.preventDefault();event.target.form?.requestSubmit();
   }
 });
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState!=="visible"||state.view!=="chat"||!state.selectedId)return;
+  if(state.unreadMessages.delete(state.selectedId))refreshContactList();
+});
 root.addEventListener("input",event=>{
-  if(event.target.id!=="contactSearch")return;
-  state.search=event.target.value;
-  const list=$("#contactList",root);
-  if(list){list.innerHTML=contactItems(state);bindAvatarFallbacks(list);}
+  if(event.target.id==="contactSearch"){
+    state.search=event.target.value;
+    refreshContactList();
+    return;
+  }
+  if(event.target.id==="notificationVolume"){
+    const volume=Number(event.target.value);
+    state.notificationPreferences.volume=volume;
+    $("#notificationVolumeOutput",root).textContent=`${volume}%`;
+  }else if(event.target.matches("[data-notification-sender-volume]")){
+    const volumeFactor=Number(event.target.value);
+    updateSenderPreference(event.target.dataset.id,{volume_factor:volumeFactor});
+    const output=root.querySelector(`[data-sender-volume-output="${CSS.escape(event.target.dataset.id)}"]`);
+    if(output)output.textContent=`${volumeFactor}%`;
+  }
 });
 root.addEventListener("change",async event=>{
+  if(event.target.id==="notificationMuted"){
+    if(state.demo)return toast("Entre na sua conta para salvar preferências.");
+    const previous=!event.target.checked;
+    try{
+      replaceNotificationPreferences(await saveNotificationPreferences(state.user.id,{
+        muted:event.target.checked,
+        volume:state.notificationPreferences.volume
+      }));
+      toast(event.target.checked?"Sons de notificação silenciados.":"Sons de notificação ativados.");
+    }catch(error){
+      state.notificationPreferences.muted=previous;
+      refreshSettings();
+      toast(error.message);
+    }
+    return;
+  }
+  if(event.target.id==="notificationVolume"){
+    if(state.demo)return toast("Entre na sua conta para salvar preferências.");
+    const previous=Number(event.target.dataset.originalValue);
+    try{
+      replaceNotificationPreferences(await saveNotificationPreferences(state.user.id,{
+        muted:state.notificationPreferences.muted,
+        volume:Number(event.target.value)
+      }));
+      toast("Volume geral salvo.");
+    }catch(error){
+      state.notificationPreferences.volume=previous;
+      refreshSettings();
+      toast(error.message);
+    }
+    return;
+  }
+  if(event.target.matches("[data-notification-sender-muted],[data-notification-sender-volume]")){
+    if(state.demo)return toast("Entre na sua conta para salvar preferências.");
+    const senderId=event.target.dataset.id;
+    const stored=state.notificationPreferences.senders.find(item=>item.user_id===senderId)
+      ||{user_id:senderId,muted:false,volume_factor:100};
+    const previous={
+      ...stored,
+      volume_factor:event.target.matches("[data-notification-sender-volume]")
+        ?Number(event.target.dataset.originalValue)
+        :stored.volume_factor,
+      muted:event.target.matches("[data-notification-sender-muted]")
+        ?!event.target.checked
+        :stored.muted
+    };
+    const update=event.target.matches("[data-notification-sender-muted]")
+      ?{muted:event.target.checked,volume_factor:previous.volume_factor}
+      :{muted:previous.muted,volume_factor:Number(event.target.value)};
+    updateSenderPreference(senderId,update);
+    try{
+      replaceNotificationPreferences(await saveSenderNotificationPreferences(state.user.id,senderId,update));
+      toast("Preferência do contato salva.");
+    }catch(error){
+      updateSenderPreference(senderId,previous);
+      refreshSettings();
+      toast(error.message);
+    }
+    return;
+  }
   if(event.target.id!=="avatarUpload")return;
   const file=event.target.files?.[0];
   if(!file)return;

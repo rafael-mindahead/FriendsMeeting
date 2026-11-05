@@ -16,13 +16,14 @@ Acesse **http://localhost:8081** para a landing, **http://localhost:8081/app.htm
 ## Rotas e telas
 
 - **Entrar / cadastro:** `/app.html?mode=login` e `/app.html?mode=register`, ligados a `/api/v1/auth`.
-- **Chat:** mensagens via WebSocket, estado online, reconexão com backoff e recuperação com cursor.
+- **Chat:** mensagens via WebSocket, estado online, reconexão com backoff e recuperação com cursor. Um canal autenticado por usuário também entrega avisos de mensagens e convites recebidos.
 - **Amigos:** convites por código, aceite/recusa e abertura da conversa.
 - **Meu perfil:** foto própria (2 MiB; PNG/JPG/WebP), nome, e-mail e código de amizade.
 - **Fotos de outros usuários:** carregadas da rota pública `/api/v1/users/{user_id}/avatar`, com fallback por iniciais.
-- **Configurações:** modo claro, escuro e automático, escolha salva no navegador.
+- **Configurações:** modo claro, escuro e automático, escolha salva no navegador; volume geral de notificações. O volume da notificação e o silêncio de cada contato ficam no menu de opções da conversa.
+- **Indicadores:** mensagens recebidas em conversas não abertas exibem uma contagem rosada de não lidas, zerada ao abrir a conversa; convites pendentes marcam o ícone Amigos.
 
-O tema é armazenado no `localStorage`; tokens não são persistidos. Após atualizar a página, entre novamente. As fotos ficam no PostgreSQL; a foto é **pública** para quem possuir seu URL/identificador. Veja `docs/AVATARS.md` para limitações de privacidade.
+Preferências de notificação são persistidas pela API (`/api/v1/notifications/preferences`) e mantidas em cache no `localStorage` por conta. Os avisos visuais continuam ativos quando o som está silenciado; os sons são sintetizados no navegador e podem exigir ativação manual por meio de **Testar som**. O tema é armazenado no `localStorage`; tokens não são persistidos. Após atualizar a página, entre novamente. As fotos ficam no PostgreSQL; a foto é **pública** para quem possuir seu URL/identificador. Veja `docs/AVATARS.md` para limitações de privacidade.
 
 ## Desenvolvimento
 

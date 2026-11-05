@@ -30,7 +30,12 @@ export function renderMessageItems(state){
       <div class="message-bubble">${esc(item.body)}</div><div class="message-meta"><time class="message-time" datetime="${esc(item.created_at)}">${fmtTime(item.created_at)}</time>${receipt}</div></article>`;
   }).join("");
   const more=state.olderAvailable?.get(state.selectedId)?`<button type="button" class="load-older" data-action="load-older">Carregar mensagens anteriores</button>`:"";
-  return more+entries;
+  const typingUserId=state.typingUsers?.get(state.selectedId)?.keys().next().value;
+  const typingUser=state.friends?.find(friend=>friend.id===typingUserId);
+  const typing=typingUserId&&typingUserId!==state.user.id
+    ?`<article class="typing-indicator" role="status" aria-label="${esc(typingUser?.username||"Seu amigo")} está digitando"><div class="typing-bubble"><span></span><span></span><span></span></div></article>`
+    :"";
+  return more+entries+typing;
 }
 
 export function renderChat(state){

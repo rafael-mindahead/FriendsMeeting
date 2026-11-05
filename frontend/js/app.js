@@ -5,6 +5,11 @@ import { api, login, register, logout, me } from "./lib/request.js";
 import { accessToken } from "./lib/session.js";
 import { getFriends, getRequests, getConversations, sendInvite, decideInvite } from "./lib/friends.js";
 import { createConversation, getHistory, mergedMessages } from "./lib/conversations.js";
+import {
+  applyMessageStatus,
+  applyPendingMessageStatuses,
+  mergeMessageStatus
+} from "./lib/message-status.js";
 import { ChatConnection } from "./lib/realtime.js";
 import { UserEventsConnection } from "./lib/user-events.js";
 import {
@@ -35,6 +40,7 @@ const state = {
   avatarRevision:"",socket:null,userEvents:null,
   notificationPreferences:{muted:false,volume:100,senders:[]},
   processedNotificationIds:new Set(),
+  pendingMessageStatuses:new Map(),
   deliveredAcknowledgements:new Set(),readAcknowledgements:new Set(),
   historyOffsets:new Map(),olderAvailable:new Map()
 };
@@ -109,6 +115,12 @@ async function loadLists(){
   state.friends=friends;
   state.requests=requests;
   state.conversations=conversations;
+  state.unreadMessages.clear();
+  for(const conversation of conversations){
+    if(conversation.unread_count>0){
+      state.unreadMessages.set(conversation.id,conversation.unread_count);
+    }
+  }
 }
 function render(){
   if(!state.user)return showLogin();
@@ -214,6 +226,12 @@ function acknowledgeMessageRead(message){
     ||state.readAcknowledgements.has(message.id))return;
   if(state.socket.send({type:"message_read",message_id:message.id})){
     rememberAcknowledgement(state.readAcknowledgements,message.id);
+    message.read_at=new Date().toISOString();
+    message.delivered_at=message.delivered_at||message.read_at;
+    const unread=state.unreadMessages.get(message.conversation_id)||0;
+    if(unread<=1)state.unreadMessages.delete(message.conversation_id);
+    else state.unreadMessages.set(message.conversation_id,unread-1);
+    refreshContactList();
   }
 }
 function observeIncomingMessages(){
@@ -256,14 +274,23 @@ function handleMessageStatus(status){
     ||typeof status.message_id!=="string"
     ||typeof status.conversation_id!=="string")return;
   const messages=state.messages.get(status.conversation_id);
-  if(!messages)return;
-  const message=messages.find(item=>item.id===status.message_id);
-  if(!message)return;
-  if(status.delivered_at)message.delivered_at=status.delivered_at;
-  if(status.read_at){
-    message.read_at=status.read_at;
-    message.delivered_at=status.delivered_at||message.delivered_at;
+  const message=messages?.find(item=>item.id===status.message_id);
+  if(!message){
+    state.pendingMessageStatuses.set(
+      status.message_id,
+      mergeMessageStatus(
+        state.pendingMessageStatuses.get(status.message_id),
+        status
+      )
+    );
+    if(state.pendingMessageStatuses.size>1000){
+      state.pendingMessageStatuses.delete(
+        state.pendingMessageStatuses.keys().next().value
+      );
+    }
+    return;
   }
+  applyMessageStatus(message,status);
   if(state.selectedId===status.conversation_id&&state.view==="chat"){
     refreshChat({updateMessages:true});
   }
@@ -299,10 +326,10 @@ function handleNotification(event){
       body:event.body||"",
       created_at:event.created_at
     };
+    const unread=state.unreadMessages.get(event.conversation_id)||0;
+    state.unreadMessages.set(event.conversation_id,unread+1);
     if(message.conversation_id)addMessages(message.conversation_id,[message]);
     if(!visibleInOpenChat){
-      const unread=state.unreadMessages.get(event.conversation_id)||0;
-      state.unreadMessages.set(event.conversation_id,unread+1);
       refreshContactList();
       toast(`Nova mensagem de ${name}.`);
     }
@@ -356,7 +383,9 @@ function updateSenderPreference(senderId,update){
   preferences.senders.push(next);
 }
 function addMessages(id,items,{preserveTop=false}={}){
-  state.messages.set(id,mergedMessages(state.messages.get(id)||[],items||[]));
+  const messages=mergedMessages(state.messages.get(id)||[],items||[]);
+  applyPendingMessageStatuses(messages,state.pendingMessageStatuses);
+  state.messages.set(id,messages);
   if(state.selectedId===id && state.view==="chat"){
     refreshChat({updateMessages:true,preserveTop});
   }else if(state.socket?.id===id){
@@ -393,7 +422,6 @@ async function selectConversation(id){
   if(!state.conversations.some(item=>item.id===id))return;
   disconnect();
   state.view="chat";state.selectedId=id;
-  state.unreadMessages.delete(id);
   state.online=state.demo?new Set(["demo-vinicius","demo-marina"]):new Set();
   state.connection=state.demo?"demo":"connecting";
   render();
@@ -454,6 +482,7 @@ async function signOut(){
   state.selectedId=null;state.search="";state.avatarRevision="";
   state.notificationPreferences={muted:false,volume:100,senders:[]};
   state.processedNotificationIds.clear();
+  state.pendingMessageStatuses.clear();
   state.deliveredAcknowledgements.clear();state.readAcknowledgements.clear();
   state.historyOffsets.clear();state.olderAvailable.clear();
   history.replaceState(null,"","/app.html?mode=login");

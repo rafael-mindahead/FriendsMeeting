@@ -43,6 +43,16 @@ class Message(Base):
         nullable=False,
         server_default=func.now(),
     )
+
+    delivered_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    read_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     __table_args__ = (
         CheckConstraint(
             "char_length(btrim(body)) BETWEEN 1 AND 2000",

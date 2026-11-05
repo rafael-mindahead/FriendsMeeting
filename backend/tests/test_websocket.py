@@ -325,6 +325,98 @@ def test_ws_database_failure(context, monkeypatch):
         assert ws.receive_json() == {"type": "pong"}
 
 
+@pytest.mark.parametrize(
+    ("event_type", "status_field"),
+    [
+        ("message_delivered", "delivered_at"),
+        ("message_read", "read_at"),
+    ],
+)
+def test_ws_message_status_notifies_sender(
+    context,
+    monkeypatch,
+    event_type,
+    status_field,
+):
+    client, conversation_id, recipient_id = context
+    message_id = uuid4()
+    sender_id = uuid4()
+    notifications = []
+
+    status = {
+        "message_id": str(message_id),
+        "conversation_id": str(conversation_id),
+        "sender_id": str(sender_id),
+        "delivered_at": datetime.now(timezone.utc).isoformat(),
+        "read_at": None,
+    }
+    if status_field == "read_at":
+        status["read_at"] = datetime.now(timezone.utc).isoformat()
+
+    update = (
+        lambda requested_message, requested_recipient, requested_conversation: (
+            status
+        )
+    )
+    if event_type == "message_delivered":
+        monkeypatch.setattr(websocket_chat, "mark_message_delivered", update)
+    else:
+        monkeypatch.setattr(websocket_chat, "mark_message_read", update)
+
+    async def record_notification(user_id, event):
+        notifications.append((user_id, event))
+
+    monkeypatch.setattr(
+        websocket_chat.manager,
+        "notify_user",
+        record_notification,
+    )
+
+    with client.websocket_connect(
+        f"/api/v1/conversations/{conversation_id}/ws"
+    ) as ws:
+        ws.send_json({"type": "auth", "token": "valid-token"})
+        assert ws.receive_json()["type"] == "ready"
+
+        ws.send_json({
+            "type": event_type,
+            "message_id": str(message_id),
+        })
+        ws.send_json({"type": "ping"})
+        assert ws.receive_json() == {"type": "pong"}
+
+    assert notifications == [
+        (
+            sender_id,
+            {
+                "type": "message_status",
+                "data": status,
+            },
+        )
+    ]
+    assert recipient_id != sender_id
+
+
+def test_ws_message_status_rejects_invalid_message_id(context):
+    client, conversation_id, _ = context
+
+    with client.websocket_connect(
+        f"/api/v1/conversations/{conversation_id}/ws"
+    ) as ws:
+        ws.send_json({"type": "auth", "token": "valid-token"})
+        assert ws.receive_json()["type"] == "ready"
+
+        ws.send_json({
+            "type": "message_read",
+            "message_id": "not-a-uuid",
+        })
+
+        assert ws.receive_json() == {
+            "type": "error",
+            "code": "invalid_message_status",
+        }
+
+
 
 
 

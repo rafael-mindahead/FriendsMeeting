@@ -38,6 +38,8 @@ class MessagePublic(BaseModel):
     sender_id: UUID
     body: str
     created_at: datetime
+    delivered_at: datetime | None
+    read_at: datetime | None
 
 
 def get_authorized_conversation(

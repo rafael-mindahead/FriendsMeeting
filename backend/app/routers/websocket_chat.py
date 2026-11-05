@@ -17,12 +17,21 @@ from app.realtime.manager import manager
 from app.routers.messages import MessageCreate, MessagePublic
 from app.services.profiles import ensure_profile
 
+from app.services.message_status import (
+    mark_message_delivered,
+    mark_message_read,
+)
+
 
 router = APIRouter(tags=["WebSocket"])
 
 class MessageSyncRequest(BaseModel):
     after_id: UUID
     limit: int = Field(default=50, ge=1, le=100)
+
+
+class MessageStatusRequest(BaseModel):
+    message_id: UUID
 
 
 def check_ws_access(token: str, conversation_id: UUID) -> UUID:
@@ -341,6 +350,52 @@ async def conversation_websocket(
                     "type": "messages_sync",
                     **result,
                 })
+                continue
+
+            # CONFIRMACAO DE ENTREGA OU VISUALIZACAO
+            if event_type in ("message_delivered", "message_read"):
+                try:
+                    payload = MessageStatusRequest.model_validate(event)
+                except ValidationError:
+                    await websocket.send_json({
+                        "type": "error",
+                        "code": "invalid_message_status",
+                    })
+                    continue
+
+                update_status = (
+                    mark_message_read
+                    if event_type == "message_read"
+                    else mark_message_delivered
+                )
+                try:
+                    status = await run_in_threadpool(
+                        update_status,
+                        payload.message_id,
+                        user_id,
+                        conversation_id,
+                    )
+                except SQLAlchemyError:
+                    await websocket.send_json({
+                        "type": "error",
+                        "code": "message_status_update_failed",
+                    })
+                    continue
+
+                if status is None:
+                    await websocket.send_json({
+                        "type": "error",
+                        "code": "invalid_message_status",
+                    })
+                    continue
+
+                await manager.notify_user(
+                    UUID(status["sender_id"]),
+                    {
+                        "type": "message_status",
+                        "data": status,
+                    },
+                )
                 continue
 
             # ENVIO DE MENSAGENS

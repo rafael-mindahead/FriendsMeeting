@@ -15,16 +15,26 @@ void tratarEventoWebSocket(
 ) {
     switch (tipo) {
 
-        case WStype_CONNECTED:
+        case WStype_CONNECTED: {
             Serial.printf(
-                "Cliente %u conectado.\n",
+                "[WS] Cliente %u conectado\n",
                 cliente
             );
+
+            JsonDocument resposta;
+            resposta["type"] = "connected";
+            resposta["clientId"] = cliente;
+
+            String mensagem;
+            serializeJson(resposta, mensagem);
+
+            webSocket.sendTXT(cliente, mensagem);
             break;
+        }
 
         case WStype_DISCONNECTED:
             Serial.printf(
-                "Cliente %u desconectado.\n",
+                "[WS] Cliente %u desconectado\n",
                 cliente
             );
             break;
@@ -44,7 +54,7 @@ void tratarEventoWebSocket(
                     cliente,
                     "{\"type\":\"error\",\"message\":\"JSON invalido\"}"
                 );
-                return;
+                break;
             }
 
             const char* tipoMensagem =
@@ -57,6 +67,44 @@ void tratarEventoWebSocket(
                 );
             }
 
+            else if (strcmp(tipoMensagem, "relay") == 0) {
+
+                if (!documento["to"].is<uint8_t>()) {
+                    webSocket.sendTXT(
+                        cliente,
+                        "{\"type\":\"error\",\"message\":\"Destinatario invalido\"}"
+                    );
+                    break;
+                }
+
+                uint8_t destinatario =
+                    documento["to"].as<uint8_t>();
+
+                JsonDocument encaminhamento;
+
+                encaminhamento["type"] = "message";
+                encaminhamento["from"] = cliente;
+                encaminhamento["data"] = documento["data"];
+
+                String mensagem;
+                serializeJson(
+                    encaminhamento,
+                    mensagem
+                );
+
+                bool enviado = webSocket.sendTXT(
+                    destinatario,
+                    mensagem
+                );
+
+                if (!enviado) {
+                    webSocket.sendTXT(
+                        cliente,
+                        "{\"type\":\"error\",\"message\":\"Falha no encaminhamento\"}"
+                    );
+                }
+            }
+
             break;
         }
 
@@ -67,10 +115,7 @@ void tratarEventoWebSocket(
 
 void inicializarWebSocket() {
     webSocket.begin();
-
-    webSocket.onEvent(
-        tratarEventoWebSocket
-    );
+    webSocket.onEvent(tratarEventoWebSocket);
 
     Serial.println(
         "Servidor WebSocket iniciado na porta 81."

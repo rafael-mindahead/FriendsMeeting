@@ -12,7 +12,7 @@ void setup() {
 }
 
 void loop() {
-    verificarWiFi();
+    verificarWifi();
     atualizarWebSocket();
 
     delay(10);

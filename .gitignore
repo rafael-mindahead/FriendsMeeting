@@ -5,6 +5,7 @@ __pycache__/
 *.db
 *.sqlite3
 .pytest_cache/
+.pio/
 .DS_Store
 esp32/include/secrets.h
 esp32/.pio/

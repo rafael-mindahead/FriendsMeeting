@@ -3,8 +3,21 @@ services:
     build:
       context: ./frontend
     ports:
-      - "127.0.0.1:8081:80"
+      - "8081:80"
     depends_on:
       api:
         condition: service_healthy
     restart: unless-stopped
+
+  
+  https-proxy:
+    image: nginx:1.27-alpine
+    ports:
+      - "8443:443"
+    volumes:
+      - ./https-proxy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      - frontend
+    restart: unless-stopped
+

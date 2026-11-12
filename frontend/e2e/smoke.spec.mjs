@@ -38,3 +38,16 @@ test("preferências alteram tema e perfil continua acessível", async ({ page })
   await page.getByRole("button",{name:"Meu perfil"}).first().click();
   await expect(page.getByRole("heading",{name:"Meu perfil"})).toBeVisible();
 });
+
+
+test("atualizar conversas preserva o rascunho, cursor e foco", async ({ page }) => {
+  await page.goto("/app.html?demo=1");
+  const input=page.getByRole("textbox",{name:"Escrever mensagem"});
+  await input.fill("Rascunho ainda não enviado");
+  await input.evaluate(el=>el.setSelectionRange(5,5));
+  // O acionamento programático isola o rerender: um clique humano move o foco ao botão.\n  await page.locator('[aria-label="Atualizar conversas"]').evaluate(button=>button.click());
+  await expect(input).toHaveValue("Rascunho ainda não enviado");
+  await expect(input).toBeFocused();
+  const selection=await input.evaluate(el=>[el.selectionStart,el.selectionEnd]);
+  expect(selection).toEqual([5,5]);
+});

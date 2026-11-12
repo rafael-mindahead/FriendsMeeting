@@ -57,4 +57,4 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-A recuperação de login após reload ainda exige suporte a cookies HttpOnly do backend; o cursor/offset do histórico deve evoluir para paginação estável em cenários de gravação concorrente. A captura ilustrativa da landing deve ser trocada por screenshot real aprovado antes da publicação final.
+A recuperação de login após reload ainda exige suporte a cookies HttpOnly do backend; a paginação anterior do histórico passou a usar `before_id`, preservando clientes que usam `offset`. A atualização manual de conversas preserva texto, foco e cursor de digitação. A captura ilustrativa da landing deve ser trocada por screenshot real aprovado antes da publicação final.

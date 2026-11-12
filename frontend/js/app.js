@@ -17,7 +17,7 @@ const state = {
   demo:false,user:null,authMode:params.get("mode")==="register"?"register":"login",
   view:"chat",search:"",selectedId:null, friends:[],requests:[],conversations:[],
   messages:new Map(),online:new Set(),connection:"disconnected",
-  avatarRevision:"",socket:null,historyOffsets:new Map(),olderAvailable:new Map()
+  avatarRevision:"",socket:null,olderAvailable:new Map(),loadingOlder:new Set()
 };
 
 function demoData() {
@@ -82,10 +82,38 @@ async function loadLists(){
 }
 function render(){
   if(!state.user)return showLogin();
+  // A atualização manual da lista e do perfil não deve apagar rascunhos.
+  const previousConversation=$("#messageForm",root)?.dataset.conversationId;
+  const sameConversation=state.view==="chat" && previousConversation===state.selectedId;
+  const previousInput=sameConversation?$("#messageInput",root):null;
+  const draft=previousInput?.value;
+  const hadFocus=previousInput && document.activeElement===previousInput;
+  const selectionStart=hadFocus?previousInput.selectionStart:null;
+  const selectionEnd=hadFocus?previousInput.selectionEnd:null;
+  const previousMessages=sameConversation?$("#messages",root):null;
+  const bottomGap=previousMessages
+    ? previousMessages.scrollHeight-previousMessages.scrollTop-previousMessages.clientHeight
+    : null;
+
   root.innerHTML=renderShell(state);
   bindAvatarFallbacks(root);
+
   const messages=$("#messages",root);
-  if(messages) messages.scrollTop=messages.scrollHeight;
+  if(messages){
+    if(bottomGap!==null && bottomGap>110){
+      messages.scrollTop=Math.max(0,messages.scrollHeight-messages.clientHeight-bottomGap);
+    }else{
+      messages.scrollTop=messages.scrollHeight;
+    }
+  }
+  const nextInput=sameConversation?$("#messageInput",root):null;
+  if(nextInput && draft!==undefined){
+    nextInput.value=draft;
+    if(hadFocus){
+      nextInput.focus();
+      nextInput.setSelectionRange(selectionStart,selectionEnd);
+    }
+  }
 }
 // Update conversation content without replacing composer focus or rascunhos.
 function refreshChat({forceScroll=false,updateMessages=false,preserveTop=false}={}){
@@ -123,8 +151,7 @@ async function reloadMessages(id){
   try{
     const incoming=await getHistory(id,40,0);
     if(state.selectedId===id){
-      if(!state.historyOffsets.has(id)){
-        state.historyOffsets.set(id,incoming.length);
+      if(!state.olderAvailable.has(id)){
         state.olderAvailable.set(id,incoming.length===40);
       }
       addMessages(id,incoming);
@@ -132,17 +159,24 @@ async function reloadMessages(id){
   }catch(error){toast(error.message);}
 }
 async function loadOlderMessages(id){
-  if(state.demo || state.selectedId!==id || !state.olderAvailable.get(id))return;
+  if(state.demo || state.selectedId!==id ||
+     !state.olderAvailable.get(id) || state.loadingOlder.has(id))return;
+  const oldestId=state.messages.get(id)?.[0]?.id;
+  if(!oldestId)return;
+  state.loadingOlder.add(id);
   const button=root.querySelector('[data-action="load-older"]');
   if(button)button.disabled=true;
-  const offset=state.historyOffsets.get(id)||0;
   try{
-    const page=await getHistory(id,40,offset);
+    const page=await getHistory(id,40,0,oldestId);
     if(state.selectedId!==id)return;
-    state.historyOffsets.set(id,offset+page.length);
     state.olderAvailable.set(id,page.length===40);
     addMessages(id,page,{preserveTop:true});
-  }catch(error){toast(error.message);if(button)button.disabled=false;}
+  }catch(error){
+    toast(error.message);
+    if(button?.isConnected)button.disabled=false;
+  }finally{
+    state.loadingOlder.delete(id);
+  }
 }
 async function selectConversation(id){
   if(!state.conversations.some(item=>item.id===id))return;
@@ -192,7 +226,7 @@ async function signOut(){
   state.demo=false;state.user=null;state.friends=[];state.requests=[];
   state.conversations=[];state.messages.clear();state.online.clear();
   state.selectedId=null;state.search="";state.avatarRevision="";
-  state.historyOffsets.clear();state.olderAvailable.clear();
+  state.olderAvailable.clear();state.loadingOlder.clear();
   history.replaceState(null,"","/app.html?mode=login");
   state.authMode="login";
   showLogin();

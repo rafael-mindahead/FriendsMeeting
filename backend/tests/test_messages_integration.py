@@ -228,6 +228,41 @@ def test_pg_history_pagination(pg_chat):
     assert not set(page1_ids).intersection(page2_ids)
 
 
+def test_pg_cursor_pagination_is_stable_during_new_messages(pg_chat):
+    client, db, alice, bob, charlie, act_as = pg_chat
+    conversation_id = create_chat(client, bob)
+
+    for i in range(5):
+        assert send(client, conversation_id, f"Mensagem {i}").status_code == 201
+
+    initial_ids = [row["id"] for row in history(client, conversation_id).json()]
+    page_one = history(client, conversation_id, limit=2).json()
+    assert [row["id"] for row in page_one] == initial_ids[:2]
+
+    # Uma nova mensagem não desloca o cursor da página anterior.
+    assert send(client, conversation_id, "Mensagem recente").status_code == 201
+    page_two_response = history(
+        client, conversation_id, limit=2, before_id=page_one[-1]["id"]
+    )
+    assert page_two_response.status_code == 200
+    assert [row["id"] for row in page_two_response.json()] == initial_ids[2:4]
+    assert not set(row["id"] for row in page_one).intersection(
+        row["id"] for row in page_two_response.json()
+    )
+
+
+def test_pg_cursor_must_exist_in_authorized_conversation(pg_chat):
+    client, db, alice, bob, charlie, act_as = pg_chat
+    conversation_id = create_chat(client, bob)
+    assert send(client, conversation_id, "Privado").status_code == 201
+    missing = history(client, conversation_id, before_id=str(uuid4()))
+    assert missing.status_code == 409
+
+    act_as(charlie)
+    outsider = history(client, conversation_id, before_id=str(uuid4()))
+    assert outsider.status_code == 404
+
+
 def test_pg_invalid_messages_are_rejected(pg_chat):
     client, db, alice, bob, charlie, act_as = pg_chat
 

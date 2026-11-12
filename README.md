@@ -2,7 +2,7 @@
 
 Plataforma de conversas privadas em desenvolvimento, com **FastAPI**, **PostgreSQL**, **Docker Compose** e autenticação delegada ao **authService**. O objetivo futuro é permitir comunicação em rede local via **WebSocket/ESP32**, inclusive em um cenário com o backend temporariamente indisponível.
 
-> **Estado atual:** o backend HTTP para cadastro/login, perfis, amizades, conversas e mensagens está implementado. **WebSocket, firmware do ESP32 e interface web ainda não estão implementados.** Não confunda as APIs HTTP existentes com um chat em tempo real pronto.
+> **Estado atual:** API HTTP e WebSocket autenticado, interface responsiva (login, amizades, chat, perfil/foto e temas) e testes automatizados estão implementados. **Firmware e integração do ESP32, notificações sonoras e chamadas de voz/vídeo ainda não estão implementados.**
 
 ## Funcionalidades disponíveis
 
@@ -13,27 +13,32 @@ Plataforma de conversas privadas em desenvolvimento, com **FastAPI**, **PostgreS
 - Envio de mensagens textuais de **1 a 2.000 caracteres**, rejeitando conteúdo só com espaços.
 - Histórico persistente, ordenado por data/ID decrescentes, com `limit` (1–100, padrão 20) e `offset` (padrão 0).
 - Autorização por participante: usuários externos não conseguem consultar nem enviar mensagens em conversas alheias.
-- Testes unitários e testes de integração em **PostgreSQL separado**, com CI no GitHub Actions.
+- Chat privado **em tempo real com WebSocket**, presença por conversa e recuperação de mensagens perdidas após desconexão.
+- Interface web HTML/CSS/JS servida opcionalmente por Nginx, com telas de login, cadastro, amigos, chat, perfil/foto e temas claro/escuro/automático.
+- Histórico HTTP com paginação legada por offset e paginação estável usando `before_id` (UUID de uma mensagem da própria conversa).
+- Testes unitários, integração com **PostgreSQL separado** e testes Playwright de interface, com CI no GitHub Actions.
 
 ## Arquitetura
 
 ```text
-Navegador / cliente HTTP
-       |
-       v
-FriendsMeeting FastAPI (:8000) ----HTTP interno----> authService FastAPI (:8001 no host)
-       |                                            |               |
-       v                                            v               v
-PostgreSQL FriendsMeeting                  PostgreSQL auth       Redis auth
-(users, friend_requests,
- conversations, messages)
+Navegadores A e B (HTML/CSS/JS)
+      | HTTP + WebSocket
+      v
+Nginx :8081 (opcional, proxy same-origin)
+      | /api/v1/
+      v
+FastAPI FriendsMeeting :8000 <----HTTP interno----> authService :8000 interno
+      |                                                        |         |
+      v                                                        v         v
+PostgreSQL FriendsMeeting                               PostgreSQL auth  Redis auth
+(users, requests, conversations, messages, avatars)
 
-[Futuro] Navegadores <-- WebSocket local --> ESP32 (sem API Python ativa)
+ESP32 / rede local: próximo passo, não faz parte deste fluxo implementado.
 ```
 
 O FriendsMeeting **não valida JWT por conta própria**: encaminha o token a `GET /auth/me` do authService e provisiona o perfil local com UUID. Credenciais e sessões pertencem ao authService. Perfis legados não são vinculados silenciosamente apenas por e-mail.
 
-O projeto possui **um único** `compose.yaml` para as duas APIs, dois bancos PostgreSQL e o Redis. Não é preciso clonar o authService separadamente para rodar esta versão; seu código está em `services/auth-service/`.
+O projeto possui um `compose.yaml` para as duas APIs, dois bancos PostgreSQL e o Redis, e um `compose.frontend.yaml` opcional para a interface Nginx. Não é preciso clonar o authService separadamente para rodar esta versão; seu código está em `services/auth-service/`.
 
 Detalhes adicionais: [arquitetura e contratos HTTP](docs/ARCHITECTURE.md).
 
@@ -98,9 +103,10 @@ curl -H "Authorization: Bearer SEU_TOKEN" \
 - `GET /api/v1/conversations` lista conversas próprias.
 - `GET /api/v1/conversations/{id}` consulta uma conversa própria.
 - `POST /api/v1/conversations/{id}/messages` com `{"body":"Olá!"}`.
-- `GET /api/v1/conversations/{id}/messages?limit=20&offset=0` consulta o histórico.
+- `GET /api/v1/conversations/{id}/messages?limit=20&offset=0` consulta o histórico (compatibilidade).
+- `GET /api/v1/conversations/{id}/messages?limit=40&before_id=UUID` busca mensagens anteriores de forma estável.
 
-Toda rota de amizades, conversas e mensagens exige `Authorization: Bearer`, validado pelo authService. A mensagem não é enviada instantaneamente ao outro navegador ainda; o histórico é consultado via HTTP.
+Toda rota de amizades, conversas e mensagens exige `Authorization: Bearer`, validado pelo authService. No chat, após a autenticação WebSocket, o evento `send_message` é persistido no PostgreSQL **antes** do `broadcast` para os participantes conectados; o histórico também pode ser consultado via HTTP.
 
 ## Testes: mocks e PostgreSQL real
 
@@ -139,10 +145,12 @@ O [workflow de CI](.github/workflows/backend-tests.yml) provisiona o PostgreSQL 
 - [x] Solicitações de amizade, aceite, recusa e listagem
 - [x] Conversas privadas e histórico persistente
 - [x] Testes automatizados de API e integração PostgreSQL
-- [ ] WebSocket autenticado, presença e notificações em tempo real
+- [x] WebSocket autenticado, presença por conversa e sincronização de mensagens após reconexão
+- [x] Interface web responsiva, perfis com foto e testes de navegador
+- [x] Paginação do histórico por cursor `before_id` (além de offset legado)
 - [ ] Integração ESP32 e testes entre dois notebooks em rede local
-- [ ] Interface web responsiva
-- [ ] Estratégia de sincronização offline, robustez e observabilidade
+- [ ] Notificações sonoras/do sistema, chamadas de voz/vídeo e indicadores de leitura
+- [ ] Robustez para múltiplas instâncias e observabilidade de produção
 
 ## Segurança e cuidados
 

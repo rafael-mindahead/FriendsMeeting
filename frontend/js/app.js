@@ -82,10 +82,38 @@ async function loadLists(){
 }
 function render(){
   if(!state.user)return showLogin();
+  // A atualização manual da lista e do perfil não deve apagar rascunhos.
+  const previousConversation=$("#messageForm",root)?.dataset.conversationId;
+  const sameConversation=state.view==="chat" && previousConversation===state.selectedId;
+  const previousInput=sameConversation?$("#messageInput",root):null;
+  const draft=previousInput?.value;
+  const hadFocus=previousInput && document.activeElement===previousInput;
+  const selectionStart=hadFocus?previousInput.selectionStart:null;
+  const selectionEnd=hadFocus?previousInput.selectionEnd:null;
+  const previousMessages=sameConversation?$("#messages",root):null;
+  const bottomGap=previousMessages
+    ? previousMessages.scrollHeight-previousMessages.scrollTop-previousMessages.clientHeight
+    : null;
+
   root.innerHTML=renderShell(state);
   bindAvatarFallbacks(root);
+
   const messages=$("#messages",root);
-  if(messages) messages.scrollTop=messages.scrollHeight;
+  if(messages){
+    if(bottomGap!==null && bottomGap>110){
+      messages.scrollTop=Math.max(0,messages.scrollHeight-messages.clientHeight-bottomGap);
+    }else{
+      messages.scrollTop=messages.scrollHeight;
+    }
+  }
+  const nextInput=sameConversation?$("#messageInput",root):null;
+  if(nextInput && draft!==undefined){
+    nextInput.value=draft;
+    if(hadFocus){
+      nextInput.focus();
+      nextInput.setSelectionRange(selectionStart,selectionEnd);
+    }
+  }
 }
 // Update conversation content without replacing composer focus or rascunhos.
 function refreshChat({forceScroll=false,updateMessages=false,preserveTop=false}={}){

@@ -30,7 +30,7 @@ export function renderChat(state){
     <div class="chat-scroll" id="messages" role="log" aria-label="Mensagens da conversa" aria-live="polite">
       ${items}
     </div>
-    <form class="chat-composer" id="messageForm">
+    <form class="chat-composer" id="messageForm" data-conversation-id="${esc(conversation.id)}">
       <div class="composer-inner"><textarea id="messageInput" aria-label="Escrever mensagem" name="body" placeholder="Escreva uma mensagem…" rows="1" maxlength="2000" required></textarea>
       <button type="submit" aria-label="Enviar mensagem" ${!state.demo&&state.connection!=="connected"?"disabled":""}>${icon("send")}</button></div>
       <div class="composer-hint">Enter envia · Shift + Enter quebra a linha</div>

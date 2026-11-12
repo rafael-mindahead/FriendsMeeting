@@ -128,6 +128,57 @@ CallResult aceitarChamada(
     return CallResult::SUCCESS;
 }
 
+
+CallResult confirmarConexaoChamada(
+    const String& callId,
+    const String& userId
+) {
+    CallSession* chamada = encontrarChamada(callId);
+
+    if (!chamada) {
+        return CallResult::CALL_NOT_FOUND;
+    }
+
+    if (
+        chamada->callerId != userId &&
+        chamada->calleeId != userId
+    ) {
+        return CallResult::UNAUTHORIZED;
+    }
+
+    if (chamada->state != CallState::CONNECTING) {
+        return CallResult::INVALID_STATE;
+    }
+
+    if (
+        !chamada->callerOnline ||
+        !chamada->calleeOnline
+    ) {
+        return CallResult::INVALID_STATE;
+    }
+
+    if (chamada->callerId == userId) {
+        chamada->callerReady = true;
+    } else {
+        chamada->calleeReady = true;
+    }
+
+    if (
+        chamada->callerReady &&
+        chamada->calleeReady
+    ) {
+        alterarEstado(*chamada, CallState::ACTIVE);
+
+        Serial.printf(
+            "[CALL] Chamada %s ativa\n",
+            callId.c_str()
+        );
+    }
+
+    return CallResult::SUCCESS;
+}
+
+
 CallResult recusarChamada(
     const String& callId,
     const String& userId
@@ -412,9 +463,13 @@ void usuarioReconectado(const String& userId) {
         }
 
         if (chamada.state == CallState::RECONNECTING &&
-            agora - chamada.stateStartedAt >= RECONNECT_TIMEOUT_MS) {
+            chamada.callerOnline &&
+            chamada.calleeOnline) {
 
-            alterarEstado(chamada, CallState::FAILED);
+            chamada.callerReady = false;
+            chamada.calleeReady = false;
+
+            alterarEstado(chamada, CallState::CONNECTING);
             eventosPendentes.push_back(chamada);
             continue;
         }

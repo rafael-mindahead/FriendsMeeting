@@ -28,6 +28,9 @@ struct CallSession {
 
     bool callerOnline;
     bool calleeOnline;
+
+    bool callerReady = false;
+    bool calleeReady = false;
 };
 
 enum class CallResult {
@@ -75,6 +78,11 @@ CallResult validarSinalizacao(
     const String& callId,
     const String& remetenteId,
     String& destinatarioId
+);
+
+CallResult confirmarConexaoChamada(
+    const String& callId,
+    const String& userId
 );
 
 using CallEventCallback = void (*)(const CallSession&);

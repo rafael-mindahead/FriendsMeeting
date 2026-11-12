@@ -17,7 +17,7 @@ const state = {
   demo:false,user:null,authMode:params.get("mode")==="register"?"register":"login",
   view:"chat",search:"",selectedId:null, friends:[],requests:[],conversations:[],
   messages:new Map(),online:new Set(),connection:"disconnected",
-  avatarRevision:"",socket:null,historyOffsets:new Map(),olderAvailable:new Map()
+  avatarRevision:"",socket:null,olderAvailable:new Map(),loadingOlder:new Set()
 };
 
 function demoData() {
@@ -123,8 +123,7 @@ async function reloadMessages(id){
   try{
     const incoming=await getHistory(id,40,0);
     if(state.selectedId===id){
-      if(!state.historyOffsets.has(id)){
-        state.historyOffsets.set(id,incoming.length);
+      if(!state.olderAvailable.has(id)){
         state.olderAvailable.set(id,incoming.length===40);
       }
       addMessages(id,incoming);
@@ -132,17 +131,24 @@ async function reloadMessages(id){
   }catch(error){toast(error.message);}
 }
 async function loadOlderMessages(id){
-  if(state.demo || state.selectedId!==id || !state.olderAvailable.get(id))return;
+  if(state.demo || state.selectedId!==id ||
+     !state.olderAvailable.get(id) || state.loadingOlder.has(id))return;
+  const oldestId=state.messages.get(id)?.[0]?.id;
+  if(!oldestId)return;
+  state.loadingOlder.add(id);
   const button=root.querySelector('[data-action="load-older"]');
   if(button)button.disabled=true;
-  const offset=state.historyOffsets.get(id)||0;
   try{
-    const page=await getHistory(id,40,offset);
+    const page=await getHistory(id,40,0,oldestId);
     if(state.selectedId!==id)return;
-    state.historyOffsets.set(id,offset+page.length);
     state.olderAvailable.set(id,page.length===40);
     addMessages(id,page,{preserveTop:true});
-  }catch(error){toast(error.message);if(button)button.disabled=false;}
+  }catch(error){
+    toast(error.message);
+    if(button?.isConnected)button.disabled=false;
+  }finally{
+    state.loadingOlder.delete(id);
+  }
 }
 async function selectConversation(id){
   if(!state.conversations.some(item=>item.id===id))return;
@@ -192,7 +198,7 @@ async function signOut(){
   state.demo=false;state.user=null;state.friends=[];state.requests=[];
   state.conversations=[];state.messages.clear();state.online.clear();
   state.selectedId=null;state.search="";state.avatarRevision="";
-  state.historyOffsets.clear();state.olderAvailable.clear();
+  state.olderAvailable.clear();state.loadingOlder.clear();
   history.replaceState(null,"","/app.html?mode=login");
   state.authMode="login";
   showLogin();

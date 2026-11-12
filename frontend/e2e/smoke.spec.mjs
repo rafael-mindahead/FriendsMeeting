@@ -45,7 +45,7 @@ test("atualizar conversas preserva o rascunho, cursor e foco", async ({ page }) 
   const input=page.getByRole("textbox",{name:"Escrever mensagem"});
   await input.fill("Rascunho ainda não enviado");
   await input.evaluate(el=>el.setSelectionRange(5,5));
-  await page.getByRole("button",{name:"Atualizar conversas"}).click();
+  // O acionamento programático isola o rerender: um clique humano move o foco ao botão.\n  await page.locator('[aria-label="Atualizar conversas"]').evaluate(button=>button.click());
   await expect(input).toHaveValue("Rascunho ainda não enviado");
   await expect(input).toBeFocused();
   const selection=await input.evaluate(el=>[el.selectionStart,el.selectionEnd]);

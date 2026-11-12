@@ -3,7 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -113,6 +113,7 @@ def list_messages(
     conversation_id: UUID,
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    before_id: UUID | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -120,13 +121,35 @@ def list_messages(
         conversation_id, db, current_user
     )
 
+    query = select(Message).where(Message.conversation_id == conversation.id)
+
+    # O cursor é estável mesmo quando novas mensagens chegam durante a paginação.
+    # Sempre verificamos se ele pertence à conversa autorizada.
+    if before_id is not None:
+        cursor = db.scalar(
+            select(Message).where(
+                Message.id == before_id,
+                Message.conversation_id == conversation.id,
+            )
+        )
+        if cursor is None:
+            raise HTTPException(status_code=409, detail="Cursor de historico invalido")
+        query = query.where(
+            or_(
+                Message.created_at < cursor.created_at,
+                and_(
+                    Message.created_at == cursor.created_at,
+                    Message.id < cursor.id,
+                ),
+            )
+        )
+    else:
+        # Mantém offset para clientes HTTP existentes.
+        query = query.offset(offset)
+
     return db.scalars(
-        select(Message)
-        .where(Message.conversation_id == conversation.id)
-        .order_by(
+        query.order_by(
             Message.created_at.desc(),
             Message.id.desc(),
-        )
-        .offset(offset)
-        .limit(limit)
+        ).limit(limit)
     ).all()

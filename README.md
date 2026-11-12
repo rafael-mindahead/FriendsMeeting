@@ -20,7 +20,7 @@ Plataforma de conversas privadas em desenvolvimento, com **FastAPI**, **PostgreS
 
 ## Arquitetura
 
-\`\`\`text
+```text
 Navegadores A e B (HTML/CSS/JS)
       | HTTP + WebSocket
       v
@@ -34,7 +34,7 @@ PostgreSQL FriendsMeeting                               PostgreSQL auth  Redis a
 (users, requests, conversations, messages, avatars)
 
 ESP32 / rede local: próximo passo, não faz parte deste fluxo implementado.
-\`\`\`
+```
 
 O FriendsMeeting **não valida JWT por conta própria**: encaminha o token a `GET /auth/me` do authService e provisiona o perfil local com UUID. Credenciais e sessões pertencem ao authService. Perfis legados não são vinculados silenciosamente apenas por e-mail.
 

@@ -5,6 +5,7 @@
 #include "secrets.h"
 #include "wifi/wifi_manager.h"
 #include "websocket/websocket_server.h"
+#include "calls/call_manager.h"
 
 
 void testarConexaoBackend() {
@@ -36,7 +37,9 @@ void setup() {
 
 void loop() {
     verificarWifi();
+    atualizarChamadas();
     atualizarWebSocket();
+    limparChamadasFinalizadas();
 
     delay(10);
 }

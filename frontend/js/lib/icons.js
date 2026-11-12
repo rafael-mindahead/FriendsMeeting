@@ -14,6 +14,11 @@ const paths = {
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   moon: '<path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5 8.5 8.5 0 1 0 20.5 14.5Z"/>',
   monitor: '<rect x="2" y="3" width="20" height="15" rx="2"/><path d="M8 22h8m-4-4v4"/>',
+  phone: '<path d="M22 16.9v3a2 2 0 0 1-2.2 2A19.7 19.7 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7l.5 2.8a2 2 0 0 1-.6 1.8L7.1 10a16 16 0 0 0 6.9 6.9l1.7-1.9a2 2 0 0 1 1.8-.6l2.8.5a2 2 0 0 1 1.7 1.9Z"/>',
+  "phone-off": '<path d="m3 3 18 18M9 9a16 16 0 0 0 5 5m3.1-3.1 1.1-.1 2.8.5a2 2 0 0 1 1.7 1.9v3a2 2 0 0 1-1 1.7M6 6 4 6a2 2 0 0 0-2 2 19.7 19.7 0 0 0 14 14 2 2 0 0 0 2-2v-2"/>',
+  mic: '<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5m-4 0h8"/>',
+  "mic-off": '<path d="m2 2 20 20M9 9v2a3 3 0 0 0 5.1 2.1M15 9V5a3 3 0 0 0-5.7-1.3M5 10a7 7 0 0 0 12 4.9M19 10a7 7 0 0 1-.8 3.3M12 17v5m-4 0h8"/>',
+  x: '<path d="M18 6 6 18M6 6l12 12"/>',
 };
 export function icon(name,size=20){
   if (!Object.prototype.hasOwnProperty.call(paths,name)) return "";

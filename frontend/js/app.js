@@ -28,6 +28,8 @@ import { showAuth } from "./views/auth.js";
 import { renderShell, contactItems } from "./views/shell.js";
 import { renderMessageItems } from "./views/chat.js";
 import { renderSettings } from "./views/settings.js";
+import { renderCallLayer } from "./views/call.js";
+import { CallManager } from "./lib/calls/call-manager.js";
 
 initializeTheme();
 const root = $("#appRoot");
@@ -46,7 +48,9 @@ const state = {
   processedNotificationIds:new Set(),
   pendingMessageStatuses:new Map(),
   deliveredAcknowledgements:new Set(),readAcknowledgements:new Set(),
-  historyOffsets:new Map(),olderAvailable:new Map()
+  historyOffsets:new Map(),olderAvailable:new Map(),
+  callManager:null,callDisplay:null,callConnection:"disconnected",callActionPending:false,
+  callMuted:false,callUrl:localStorage.getItem("friendsmeeting:call-ws-url")||""
 };
 let soundUnlockReminderShown=false;
 let messageReadObserver=null;
@@ -88,6 +92,7 @@ function demoData() {
 function showLogin(){
   disconnect();
   disconnectUserEvents();
+  closeCalls();
   showAuth({
     mode:state.authMode,
     onMode:mode=>{state.authMode=mode;history.replaceState(null,"", "/app.html?mode="+mode);showLogin();},
@@ -115,6 +120,7 @@ function showLogin(){
       history.replaceState(null,"","/app.html");
       render();
       connectUserEvents();
+      if(state.callUrl)connectCalls().catch(error=>console.warn("Falha na conexão de chamadas:",error));
     }
   });
 }
@@ -141,6 +147,148 @@ function render(){
   if(messages) messages.scrollTop=messages.scrollHeight;
   observeIncomingMessages();
   acknowledgeDeliveredMessages();
+}
+function refreshCallUI(){
+  const layer=$("#callLayer",root);
+  if(layer){layer.innerHTML=renderCallLayer(state);bindAvatarFallbacks(layer);}
+  const button=root.querySelector('[data-action="start-call"]');
+  if(button){
+    button.disabled=state.demo||state.callConnection!=="connected"||Boolean(state.callDisplay);
+    button.title=state.callConnection==="connected"?"Iniciar chamada":"Conecte o ESP32 nas configurações para ligar";
+  }
+  const status=$("#callConnectionText",root);
+  if(status)status.textContent=state.callConnection==="connected"?"ESP32 conectado":state.callConnection==="connecting"?"Conectando ao ESP32…":"ESP32 desconectado";
+}
+function closeCalls(){
+  state.callManager?.close();
+  state.callManager=null;
+  state.callDisplay=null;
+  state.callConnection="disconnected";
+  state.callActionPending=false;
+  state.callMuted=false;
+  refreshCallUI();
+}
+function callPacket(packet){
+  if(!state.user)return;
+  const role=packet.callerId===state.user.id?"caller":"callee";
+  if(packet.callerId!==state.user.id&&packet.calleeId!==state.user.id)return;
+  const peerId=role==="caller"?packet.calleeId:packet.callerId;
+  state.callDisplay={callId:packet.callId,peerId,role,state:packet.state};
+  state.callActionPending=false;
+  if(["ENDED","REJECTED","CANCELLED","MISSED","FAILED"].includes(packet.state)){
+    state.callMuted=false;
+  }
+  refreshCallUI();
+}
+function validCallUrl(value){
+  const raw=value.trim();
+  if(!raw)throw new Error("Informe o endereço do ESP32.");
+  const url=new URL(/^wss?:\/\//i.test(raw)?raw:"ws://"+raw);
+  if(!["ws:","wss:"].includes(url.protocol)||!url.hostname||url.username||url.password
+    ||url.pathname!=="/"||url.search||url.hash){
+    throw new Error("Informe somente o endereço e a porta do WebSocket.");
+  }
+  if(location.protocol==="https:"&&url.protocol!=="wss:"){
+    throw new Error("Esta página usa HTTPS. O ESP32 precisa de WSS para conectar.");
+  }
+  if(!url.port)url.port="81";
+  return url.toString();
+}
+async function connectCalls(){
+  if(!state.user||state.demo)return;
+  if(state.callDisplay)throw new Error("Encerre a chamada antes de reconectar.");
+  const url=validCallUrl(state.callUrl);
+  closeCalls();
+  state.callConnection="connecting";
+  const manager=new CallManager(url,{
+    connected:()=>{
+      if(state.callManager!==manager)return;
+      state.callConnection="connected";
+      refreshCallUI();
+    },
+    disconnected:()=>{
+      if(state.callManager!==manager)return;
+      state.callConnection="disconnected";
+      refreshCallUI();
+    },
+    call:packet=>{if(state.callManager===manager)callPacket(packet);},
+    error:error=>{
+      if(state.callManager!==manager)return;
+      state.callActionPending=false;
+      toast(typeof error==="string"?error:error?.message||"Erro na chamada.");
+      refreshCallUI();
+    },
+    "rtc-state":status=>{
+      if(state.callManager!==manager)return;
+      if(status==="failed"||status==="disconnected"){
+        toast("A conexão de áudio foi interrompida.");
+      }
+    }
+  });
+  state.callManager=manager;
+  refreshCallUI();
+  try{await manager.connect();}
+  catch(error){
+    if(state.callManager===manager){
+      state.callConnection="disconnected";
+      manager.close();state.callManager=null;refreshCallUI();
+    }
+    throw error;
+  }
+}
+async function startCall(peerId){
+  if(state.demo)return toast("Entre na sua conta para realizar chamadas.");
+  if(state.callDisplay)return toast("Já existe uma chamada em andamento.");
+  if(state.callConnection!=="connected"||!state.callManager)return toast("Conecte o ESP32 nas configurações.");
+  if(!state.friends.some(friend=>friend.id===peerId))return;
+  state.callDisplay={callId:null,peerId,role:"caller",state:"RINGING"};
+  state.callActionPending=true;
+  state.callMuted=false;
+  refreshCallUI();
+  try{
+    await state.callManager.invite(peerId);
+    state.callActionPending=false;
+    refreshCallUI();
+  }catch(error){
+    state.callManager.cleanup();
+    state.callDisplay=null;state.callActionPending=false;
+    refreshCallUI();
+    toast(error.message||"Não foi possível iniciar a chamada.");
+  }
+}
+async function callAction(action){
+  const call=state.callDisplay;
+  const manager=state.callManager;
+  if(action==="call-dismiss"){
+    manager?.cleanup();
+    state.callDisplay=null;state.callMuted=false;state.callActionPending=false;
+    refreshCallUI();return;
+  }
+  if(!call||!manager||state.callActionPending||!call.callId)return;
+  if(action==="call-mute"){
+    const tracks=manager.rtc?.localStream?.getAudioTracks()||[];
+    if(!tracks.length)return toast("Microfone indisponível.");
+    state.callMuted=!state.callMuted;
+    tracks.forEach(track=>{track.enabled=!state.callMuted;});
+    refreshCallUI();return;
+  }
+  state.callActionPending=true;refreshCallUI();
+  try{
+    if(action==="call-accept")await manager.accept(call.callId);
+    else{
+      const sent=action==="call-reject"?manager.reject(call.callId)
+        :action==="call-cancel"?manager.cancel(call.callId)
+        :action==="call-end"?manager.end(call.callId):false;
+      if(!sent&&action!=="call-end")throw new Error("ESP32 desconectado.");
+      if(action==="call-end"){
+        state.callDisplay={...call,state:"ENDED"};
+        state.callMuted=false;
+      }
+    }
+  }catch(error){
+    state.callActionPending=false;
+    toast(error.message||"Não foi possível concluir a chamada.");
+  }finally{refreshCallUI();}
 }
 function refreshContactList(){
   const list=$("#contactList",root);
@@ -637,6 +785,7 @@ async function openFriend(id){
 async function signOut(){
   disconnect();
   disconnectUserEvents();
+  closeCalls();
   if(!state.demo)await logout();
   state.demo=false;state.user=null;state.friends=[];state.requests=[];
   state.conversations=[];state.messages.clear();state.online.clear();
@@ -672,6 +821,10 @@ root.addEventListener("click",async event=>{
       state.view=button.dataset.tab;
       state.selectedId=null;state.search="";
       render();
+    } else if(action==="start-call"){
+      await startCall(button.dataset.id);
+    } else if(["call-accept","call-reject","call-cancel","call-end","call-mute","call-dismiss"].includes(action)){
+      await callAction(action);
     } else if(action==="select-conversation"){
       await selectConversation(button.dataset.id);
     } else if(action==="load-older"){
@@ -718,6 +871,18 @@ root.addEventListener("submit",async event=>{
   const form=event.target;
   if(form.id==="authForm")return;
   event.preventDefault();
+  if(form.id==="callConnectionForm"){
+    if(state.demo)return toast("Entre na sua conta para conectar ao ESP32.");
+    if(state.callDisplay)return toast("Encerre a chamada antes de mudar a conexão.");
+    try{
+      const nextUrl=validCallUrl(String(form.elements.namedItem("url").value));
+      state.callUrl=nextUrl;
+      localStorage.setItem("friendsmeeting:call-ws-url",nextUrl);
+      await connectCalls();
+      toast("Conectando ao ESP32…");
+    }catch(error){toast(error.message||"Não foi possível conectar ao ESP32.");}
+    return;
+  }
   if(form.id==="inviteForm"){
     if(state.demo)return toast("Entre na sua conta para adicionar amigos.");
     const field=form.elements.namedItem("friend_code");

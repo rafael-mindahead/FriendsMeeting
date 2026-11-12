@@ -29,11 +29,20 @@ export function renderSettings(state){
           <span class="section-subtitle">O navegador pode exigir este teste para autorizar áudio.</span>
         </div>
       </section>
+      <section class="card-section"><h2>Chamadas de voz</h2>
+        <p class="section-subtitle">Informe o endereço WebSocket do ESP32 na rede local. Exemplo: ws://192.168.1.100:81. O navegador precisa de permissão para acessar o microfone.</p>
+        <form id="callConnectionForm" class="call-connection-settings">
+          <label for="callSocketUrl">Endereço do ESP32</label>
+          <input id="callSocketUrl" name="url" type="text" autocomplete="off" spellcheck="false" placeholder="ws://192.168.1.100:81" value="${esc(state.callUrl||"")}">
+          <div class="call-connection-actions"><button class="button primary" type="submit">Salvar e conectar</button>
+          <small id="callConnectionText" role="status">${state.callConnection==="connected"?"ESP32 conectado":state.callConnection==="connecting"?"Conectando ao ESP32…":"ESP32 desconectado"}</small></div>
+        </form>
+      </section>
       <section class="card-section"><h2>Sua conta</h2>
         <div class="settings-row"><div><h3>Perfil e foto</h3><p>Foto e código de amizade.</p></div><button class="button ghost" data-action="tab" data-tab="profile">Meu perfil</button></div>
         <div class="settings-row"><div><h3>Sair da conta</h3><p>Encerra esta sessão no navegador.</p></div><button class="button danger" data-action="logout">Sair</button></div>
       </section>
-      <section class="card-section"><h2>Sobre o projeto</h2><p class="section-subtitle">Chat com FastAPI, PostgreSQL e WebSocket. A integração com ESP32 é uma etapa futura.</p>
+      <section class="card-section"><h2>Sobre o projeto</h2><p class="section-subtitle">Chat com FastAPI, PostgreSQL e WebSocket. Chamadas de voz utilizam o ESP32 para sinalização e WebRTC para áudio entre navegadores.</p>
       <a class="button ghost" href="https://github.com/rafael-mindahead/FriendsMeeting" target="_blank" rel="noopener noreferrer">Ver código no GitHub ↗</a></section>
     </div>`;
 }

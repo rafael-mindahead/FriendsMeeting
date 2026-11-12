@@ -53,7 +53,7 @@ export function renderChat(state){
     <header class="chat-head"><div class="chat-head-user">
       <button class="icon-button chat-back" data-action="back" aria-label="Voltar às conversas">${icon("arrow-left")}</button>
       ${avatar(friend)}<div><strong>${esc(friend.username)}</strong><small id="friendPresence" class="${online?"online":""}">${online?"● Online agora":"Conversa privada"}</small></div>
-    </div><div class="chat-actions"><span id="connectionBadge" class="connection-badge ${state.connection==="connected"||state.demo?"connected":""}"><i class="green-dot"></i><span id="connectionStatus">${esc(status)}</span></span></div></header>
+    </div><div class="chat-actions"><button class="call-start-button" type="button" data-action="start-call" data-id="${esc(otherId)}" title="${state.callConnection==="connected"?"Ligar para "+esc(friend.username):"Conecte o ESP32 nas configurações para ligar"}" aria-label="Ligar para ${esc(friend.username)}" ${state.demo||state.callConnection!=="connected"||state.callDisplay?"disabled":""}>${icon("phone",19)}</button><span id="connectionBadge" class="connection-badge ${state.connection==="connected"||state.demo?"connected":""}"><i class="green-dot"></i><span id="connectionStatus">${esc(status)}</span></span></div></header>
     <div class="chat-scroll" id="messages" role="log" aria-label="Mensagens da conversa" aria-live="polite">
       ${items}
     </div>

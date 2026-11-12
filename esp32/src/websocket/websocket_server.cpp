@@ -337,6 +337,44 @@ void tratarEventoWebSocket(
                 break;
             }
 
+
+            else if (strcmp(tipoMensagem, "call-ready") == 0) {
+
+                const char* id = documento["callId"] | "";
+
+                if (strlen(id) == 0) {
+                    enviarErro(cliente, "callId ausente");
+                    break;
+                }
+
+                String callId(id);
+
+                CallResult resultado = confirmarConexaoChamada(
+                    callId,
+                    usuarioId
+                );
+
+                if (resultado != CallResult::SUCCESS) {
+                    enviarErro(
+                        cliente,
+                        "Confirmacao de chamada invalida"
+                    );
+                    break;
+                }
+
+                const CallSession* chamada = buscarChamada(callId);
+
+                if (chamada && chamada->state == CallState::ACTIVE) {
+                    notificarParticipantes(
+                        *chamada,
+                        "call-updated"
+                    );
+                }
+
+                break;
+            }
+
+
             else if (strcmp(tipoMensagem, "call-signal") == 0) {
 
                     const char* id = documento["callId"] | "";

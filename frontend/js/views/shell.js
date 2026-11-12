@@ -68,7 +68,7 @@ function renderFriends(state){
     </section>
     <section class="card-section"><h2>Convites recebidos ${state.requests.length?"("+state.requests.length+")":""}</h2>${invites||'<p class="section-subtitle">Nenhum convite pendente.</p>'}</section>
     <section class="card-section"><h2>Seus amigos ${state.friends.length?"("+state.friends.length+")":""}</h2>${friends||'<p class="section-subtitle">Você ainda não adicionou amigos.</p>'}</section>
-  </div><div id="callLayer">${renderCallLayer(state)}</div>`;
+  </div>`;
 }
 const nav = (section,label,icon,current,requestCount=0) =>
   `<button type="button" class="rail-button ${current===section?"active":""}" data-action="tab" data-tab="${section}" aria-label="${label}${requestCount?`, ${requestCount} convite${requestCount===1?"":"s"} pendente${requestCount===1?"":"s"}`:""}" title="${label}" aria-current="${current===section?"page":"false"}"><span class="rail-icon-wrap">${icon}${requestCount?`<span class="friend-invite-indicator" aria-hidden="true">+${requestCount}</span>`:""}</span></button>`;
@@ -92,5 +92,6 @@ export function renderShell(state){
       <div class="sidebar-bottom"><span>${state.demo?"Demonstração":"Amigos e conversas privadas"}</span><span>FM</span></div>
     </aside>
     <main class="main-content" id="appMain">${central}</main>
-  </div>`;
+  </div>
+  <div id="callLayer">${renderCallLayer(state)}</div>`;
 }

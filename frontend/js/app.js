@@ -233,7 +233,7 @@ root.addEventListener("click",async event=>{
       if(state.demo)return toast("Entre na sua conta para alterar sua foto.");
       await deleteAvatar();state.avatarRevision="deleted-"+Date.now();
       render();toast("Foto removida.");
-    } else if(action==="logout"){
+    } else if(action==="attach-image"){\n      if(state.demo)return toast("Entre na sua conta para enviar imagens.");\n      $("#imageInput",root)?.click();\n    } else if(action==="logout"){
       await signOut();
     }
   } catch(error){toast(error.message||"Não foi possível concluir essa ação.");}

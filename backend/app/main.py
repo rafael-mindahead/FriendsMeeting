@@ -30,7 +30,7 @@ app.include_router(messages_router)
 app.include_router(websocket_router)
 app.include_router(avatars_router)
 app.include_router(media_router)
-app.mount('/media', StaticFiles(directory=os.getenv('UPLOAD_DIR', '/app/uploads')), name='media')
+os.makedirs(os.getenv('UPLOAD_DIR', '/app/uploads'), exist_ok=True)\napp.mount('/media', StaticFiles(directory=os.getenv('UPLOAD_DIR', '/app/uploads')), name='media')
 
 @app.get("/api/v1/health")
 def health_check():

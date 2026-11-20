@@ -284,6 +284,15 @@ root.addEventListener("input",event=>{
   if(list){list.innerHTML=contactItems(state);bindAvatarFallbacks(list);}
 });
 root.addEventListener("change",async event=>{
+  if(event.target.id==="imageInput"){
+    const file=event.target.files?.[0];
+    if(!file)return;event.target.value="";
+    if(state.demo)return toast("Entre na sua conta para enviar imagens.");
+    if(!state.socket)return toast("Conecte-se a uma conversa antes de enviar.");
+    if(!["image/jpeg","image/png","image/webp"].includes(file.type))return toast("Use JPEG, PNG ou WebP.");
+    if(file.size>5*1024*1024)return toast("A imagem deve ter no máximo 5 MB.");
+    try{const data=new FormData();data.append("file",file);const result=await api("/media/images",{method:"POST",body:data});if(!state.socket.send({type:"send_message",body:"IMG:"+result.url}))throw new Error("Conexão indisponível.");toast("Imagem enviada.");}catch(error){toast(error.message||"Falha ao enviar imagem.");}return;
+  }
   if(event.target.id!=="avatarUpload")return;
   const file=event.target.files?.[0];
   if(!file)return;

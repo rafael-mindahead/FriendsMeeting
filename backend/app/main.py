@@ -10,9 +10,12 @@ from app.routers.friends import router as friends_router
 
 from app.routers.conversations import router as conversations_router
 from app.routers.messages import router as messages_router
+from app.routers.call_auth import router as call_auth_router
 
 from app.routers.websocket_chat import router as websocket_router
 from app.routers.avatars import router as avatars_router
+from app.routers.notifications import router as notifications_router
+from app.routers.user_events import router as user_events_router
 from app.routers.media import router as media_router
 from fastapi.staticfiles import StaticFiles
 import os
@@ -26,9 +29,12 @@ app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(friends_router)
 app.include_router(conversations_router)
+app.include_router(call_auth_router)
 app.include_router(messages_router)
 app.include_router(websocket_router)
 app.include_router(avatars_router)
+app.include_router(notifications_router)
+app.include_router(user_events_router)
 app.include_router(media_router)
 os.makedirs(os.getenv('UPLOAD_DIR', '/app/uploads'), exist_ok=True)
 app.mount('/media', StaticFiles(directory=os.getenv('UPLOAD_DIR', '/app/uploads')), name='media')

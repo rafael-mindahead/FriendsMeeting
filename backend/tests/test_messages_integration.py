@@ -1,5 +1,6 @@
 
 import os
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 import pytest
@@ -158,6 +159,39 @@ def test_pg_two_users_exchange_messages(pg_chat):
     act_as(alice)
     assert len(history(client, conversation_id).json()) == 2
     assert message_count(db) == 2
+
+
+def test_pg_unread_count_includes_messages_received_while_offline(pg_chat):
+    client, db, alice, bob, charlie, act_as = pg_chat
+    conversation_id = create_chat(client, bob)
+
+    sent = [
+        send(client, conversation_id, "Mensagem offline 1"),
+        send(client, conversation_id, "Mensagem offline 2"),
+    ]
+    assert all(response.status_code == 201 for response in sent)
+
+    # Bob consulta o contador ao entrar, sem ter recebido eventos em tempo real.
+    act_as(bob)
+    response = client.get("/api/v1/conversations")
+
+    assert response.status_code == 200
+    unread = next(
+        item for item in response.json()
+        if item["id"] == conversation_id
+    )
+    assert unread["unread_count"] == 2
+
+    first_message = db.get(Message, UUID(sent[0].json()["id"]))
+    first_message.read_at = datetime.now(timezone.utc)
+    db.flush()
+
+    response = client.get("/api/v1/conversations")
+    unread = next(
+        item for item in response.json()
+        if item["id"] == conversation_id
+    )
+    assert unread["unread_count"] == 1
 
 
 def test_pg_outsider_cannot_access(pg_chat):

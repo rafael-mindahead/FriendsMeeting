@@ -8,7 +8,7 @@
 - **PostgreSQL authService + Redis**: responsabilidades exclusivas do serviço de autenticação.
 - **WebSocket**: endpoint FastAPI autenticado por conversa, persistência antes da distribuição, presença, heartbeat e sincronização por cursor após reconexão.
 - **Frontend**: navegador via Nginx, HTTP para operações da API e WebSocket para eventos de chat.
-- **ESP32**: pode fornecer rede local quando configurado externamente; não há firmware ESP32 neste repositório.
+- **ESP32**: firmware em `esp32/` fornece WebSocket de sinalização de chamadas. O chat textual usa o servidor FastAPI. Chamadas usam WebRTC; a credencial temporária é emitida e consumida pela API com Redis. Validação de hardware não realizada nesta integração.
 
 ## Modelo de dados
 

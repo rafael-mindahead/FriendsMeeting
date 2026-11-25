@@ -2,7 +2,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -10,6 +10,7 @@ from app.Database.database import get_db
 from app.dependencies.current_user import get_current_user
 from app.models.conversation import Conversation
 from app.models.friend_request import FriendRequest
+from app.models.message import Message
 from app.models.user import User
 from datetime import datetime
 
@@ -28,6 +29,7 @@ class ConversationPublic(BaseModel):
     user_a_id: UUID
     user_b_id: UUID
     created_at: datetime
+    unread_count: int = 0
 
 
 def find_conversation_between_users(db: Session, user_a: UUID, user_b: UUID):
@@ -128,8 +130,19 @@ def list_conversations(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return db.scalars(
-        select(Conversation).where(
+    unread_count = (
+        select(func.count(Message.id))
+        .where(
+            Message.conversation_id == Conversation.id,
+            Message.sender_id != current_user.id,
+            Message.read_at.is_(None),
+        )
+        .correlate(Conversation)
+        .scalar_subquery()
+    )
+    rows = db.execute(
+        select(Conversation, unread_count.label("unread_count"))
+        .where(
             or_(
                 Conversation.user_a_id == current_user.id,
                 Conversation.user_b_id == current_user.id,
@@ -137,4 +150,14 @@ def list_conversations(
         )
         .order_by(Conversation.created_at.desc())
     ).all()
+    return [
+        {
+            "id": conversation.id,
+            "user_a_id": conversation.user_a_id,
+            "user_b_id": conversation.user_b_id,
+            "created_at": conversation.created_at,
+            "unread_count": unread_count,
+        }
+        for conversation, unread_count in rows
+    ]
     

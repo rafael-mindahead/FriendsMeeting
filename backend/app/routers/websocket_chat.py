@@ -17,12 +17,21 @@ from app.realtime.manager import manager
 from app.routers.messages import MessageCreate, MessagePublic
 from app.services.profiles import ensure_profile
 
+from app.services.message_status import (
+    mark_message_delivered,
+    mark_message_read,
+)
+
 
 router = APIRouter(tags=["WebSocket"])
 
 class MessageSyncRequest(BaseModel):
     after_id: UUID
     limit: int = Field(default=50, ge=1, le=100)
+
+
+class MessageStatusRequest(BaseModel):
+    message_id: UUID
 
 
 def check_ws_access(token: str, conversation_id: UUID) -> UUID:
@@ -112,6 +121,30 @@ def persist_ws_message(
             ) from exc
 
 
+def get_conversation_recipient(
+    conversation_id: UUID,
+    sender_id: UUID,
+) -> UUID:
+    with SessionLocal() as db:
+        conversation = db.get(Conversation, conversation_id)
+        if (
+            conversation is None
+            or sender_id not in (
+                conversation.user_a_id,
+                conversation.user_b_id,
+            )
+        ):
+            raise HTTPException(
+                status_code=404,
+                detail="Conversa nao encontrada",
+            )
+        return (
+            conversation.user_b_id
+            if sender_id == conversation.user_a_id
+            else conversation.user_a_id
+        )
+
+
 
 
 def load_missed_messages(
@@ -187,6 +220,9 @@ async def conversation_websocket(
 ):
     await websocket.accept()
     registered = False
+    user_id = None
+    typing_recipient_id = None
+    typing_recipient_lookup_failed = False
 
     try:
         try:
@@ -319,8 +355,110 @@ async def conversation_websocket(
                 })
                 continue
 
+            if event_type in ("typing:start", "typing:stop"):
+                if event_type == "typing:start":
+                    if typing_recipient_lookup_failed:
+                        continue
+                    try:
+                        if typing_recipient_id is None:
+                            typing_recipient_id = await run_in_threadpool(
+                                get_conversation_recipient,
+                                conversation_id,
+                                user_id,
+                            )
+                    except HTTPException as exc:
+                        await websocket.send_json({
+                            "type": "error",
+                            "code": "typing_unavailable",
+                            "status": exc.status_code,
+                        })
+                        typing_recipient_lookup_failed = True
+                        continue
+
+                    manager.start_typing(
+                        conversation_id,
+                        websocket,
+                        user_id,
+                    )
+                elif not manager.stop_typing(
+                    conversation_id,
+                    websocket,
+                    user_id,
+                ):
+                    continue
+
+                await manager.notify_user(
+                    typing_recipient_id,
+                    {
+                        "type": event_type,
+                        "conversation_id": str(conversation_id),
+                        "sender_id": str(user_id),
+                    },
+                )
+                continue
+
+            # CONFIRMACAO DE ENTREGA OU VISUALIZACAO
+            if event_type in ("message_delivered", "message_read"):
+                try:
+                    payload = MessageStatusRequest.model_validate(event)
+                except ValidationError:
+                    await websocket.send_json({
+                        "type": "error",
+                        "code": "invalid_message_status",
+                    })
+                    continue
+
+                update_status = (
+                    mark_message_read
+                    if event_type == "message_read"
+                    else mark_message_delivered
+                )
+                try:
+                    status = await run_in_threadpool(
+                        update_status,
+                        payload.message_id,
+                        user_id,
+                        conversation_id,
+                    )
+                except SQLAlchemyError:
+                    await websocket.send_json({
+                        "type": "error",
+                        "code": "message_status_update_failed",
+                    })
+                    continue
+
+                if status is None:
+                    await websocket.send_json({
+                        "type": "error",
+                        "code": "invalid_message_status",
+                    })
+                    continue
+
+                await manager.notify_user(
+                    UUID(status["sender_id"]),
+                    {
+                        "type": "message_status",
+                        "data": status,
+                    },
+                )
+                continue
+
             # ENVIO DE MENSAGENS
             if event_type == "send_message":
+                if manager.stop_typing(
+                    conversation_id,
+                    websocket,
+                    user_id,
+                ) and typing_recipient_id is not None:
+                    await manager.notify_user(
+                        typing_recipient_id,
+                        {
+                            "type": "typing:stop",
+                            "conversation_id": str(conversation_id),
+                            "sender_id": str(user_id),
+                        },
+                    )
+
                 try:
                     payload = MessageCreate.model_validate({
                         "body": event.get("body"),
@@ -329,6 +467,20 @@ async def conversation_websocket(
                     await websocket.send_json({
                         "type": "error",
                         "code": "invalid_message",
+                    })
+                    continue
+
+                try:
+                    recipient_id = await run_in_threadpool(
+                        get_conversation_recipient,
+                        conversation_id,
+                        user_id,
+                    )
+                except HTTPException as exc:
+                    await websocket.send_json({
+                        "type": "error",
+                        "code": "message_not_saved",
+                        "status": exc.status_code,
                     })
                     continue
 
@@ -359,6 +511,18 @@ async def conversation_websocket(
                         "data": saved,
                     },
                 )
+                await manager.notify_user(
+                    recipient_id,
+                    {
+                        "type": "notification",
+                        "event_id": saved["id"],
+                        "kind": "message",
+                        "conversation_id": str(conversation_id),
+                        "sender_id": str(user_id),
+                        "body": saved["body"],
+                        "created_at": saved["created_at"],
+                    },
+                )
                 continue
 
             # EVENTO DESCONHECIDO
@@ -372,6 +536,22 @@ async def conversation_websocket(
         await websocket.close(code=1003)
     finally:
         if registered:
+           if (
+               typing_recipient_id is not None
+               and manager.stop_typing(
+                   conversation_id,
+                   websocket,
+                   user_id,
+               )
+           ):
+               await manager.notify_user(
+                   typing_recipient_id,
+                   {
+                       "type": "typing:stop",
+                       "conversation_id": str(conversation_id),
+                       "sender_id": str(user_id),
+                   },
+               )
            removed_user, became_offline = manager.remove(
                conversation_id,
                websocket,
@@ -382,4 +562,3 @@ async def conversation_websocket(
                    removed_user,
                    False,
                )
-

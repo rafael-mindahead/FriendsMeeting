@@ -179,6 +179,7 @@ def test_two_users_exchange_messages(context, monkeypatch):
     client, conversation_id, alice_id = context
     bob_id = uuid4()
     persisted = []
+    notifications = []
 
     def fake_access(token, requested_conversation):
         assert requested_conversation == conversation_id
@@ -206,6 +207,20 @@ def test_two_users_exchange_messages(context, monkeypatch):
     )
     monkeypatch.setattr(
         websocket_chat, "persist_ws_message", fake_persist
+    )
+    monkeypatch.setattr(
+        websocket_chat,
+        "get_conversation_recipient",
+        lambda requested_conversation, sender_id: bob_id,
+    )
+
+    async def record_notification(user_id, event):
+        notifications.append((user_id, event))
+
+    monkeypatch.setattr(
+        websocket_chat.manager,
+        "notify_user",
+        record_notification,
     )
 
     url = f"/api/v1/conversations/{conversation_id}/ws"
@@ -235,6 +250,9 @@ def test_two_users_exchange_messages(context, monkeypatch):
             assert bob_event["data"]["sender_id"] == str(alice_id)
 
     assert persisted == ["Ola, Bob!"]
+    assert notifications[0][0] == bob_id
+    assert notifications[0][1]["kind"] == "message"
+    assert notifications[0][1]["sender_id"] == str(alice_id)
     assert manager.active(conversation_id) == 0
 
 
@@ -271,6 +289,12 @@ def test_ws_rejects_invalid_message(context, monkeypatch, body):
 def test_ws_database_failure(context, monkeypatch):
     client, conversation_id, user_id = context
 
+    monkeypatch.setattr(
+        websocket_chat,
+        "get_conversation_recipient",
+        lambda requested_conversation, sender_id: uuid4(),
+    )
+
     def failing_persist(*args):
         raise HTTPException(503, "Banco indisponivel")
 
@@ -301,6 +325,98 @@ def test_ws_database_failure(context, monkeypatch):
         assert ws.receive_json() == {"type": "pong"}
 
 
+@pytest.mark.parametrize(
+    ("event_type", "status_field"),
+    [
+        ("message_delivered", "delivered_at"),
+        ("message_read", "read_at"),
+    ],
+)
+def test_ws_message_status_notifies_sender(
+    context,
+    monkeypatch,
+    event_type,
+    status_field,
+):
+    client, conversation_id, recipient_id = context
+    message_id = uuid4()
+    sender_id = uuid4()
+    notifications = []
+
+    status = {
+        "message_id": str(message_id),
+        "conversation_id": str(conversation_id),
+        "sender_id": str(sender_id),
+        "delivered_at": datetime.now(timezone.utc).isoformat(),
+        "read_at": None,
+    }
+    if status_field == "read_at":
+        status["read_at"] = datetime.now(timezone.utc).isoformat()
+
+    update = (
+        lambda requested_message, requested_recipient, requested_conversation: (
+            status
+        )
+    )
+    if event_type == "message_delivered":
+        monkeypatch.setattr(websocket_chat, "mark_message_delivered", update)
+    else:
+        monkeypatch.setattr(websocket_chat, "mark_message_read", update)
+
+    async def record_notification(user_id, event):
+        notifications.append((user_id, event))
+
+    monkeypatch.setattr(
+        websocket_chat.manager,
+        "notify_user",
+        record_notification,
+    )
+
+    with client.websocket_connect(
+        f"/api/v1/conversations/{conversation_id}/ws"
+    ) as ws:
+        ws.send_json({"type": "auth", "token": "valid-token"})
+        assert ws.receive_json()["type"] == "ready"
+
+        ws.send_json({
+            "type": event_type,
+            "message_id": str(message_id),
+        })
+        ws.send_json({"type": "ping"})
+        assert ws.receive_json() == {"type": "pong"}
+
+    assert notifications == [
+        (
+            sender_id,
+            {
+                "type": "message_status",
+                "data": status,
+            },
+        )
+    ]
+    assert recipient_id != sender_id
+
+
+def test_ws_message_status_rejects_invalid_message_id(context):
+    client, conversation_id, _ = context
+
+    with client.websocket_connect(
+        f"/api/v1/conversations/{conversation_id}/ws"
+    ) as ws:
+        ws.send_json({"type": "auth", "token": "valid-token"})
+        assert ws.receive_json()["type"] == "ready"
+
+        ws.send_json({
+            "type": "message_read",
+            "message_id": "not-a-uuid",
+        })
+
+        assert ws.receive_json() == {
+            "type": "error",
+            "code": "invalid_message_status",
+        }
+
+
 
 
 
@@ -328,6 +444,95 @@ def test_presence_tracks_multiple_tabs():
     )
     assert not connections.is_online(room, user)
 
+
+def test_typing_stays_active_until_all_user_connections_stop():
+    connections = ConnectionManager()
+    room = uuid4()
+    user = uuid4()
+    tab1 = object()
+    tab2 = object()
+
+    connections.start_typing(room, tab1, user)
+    connections.start_typing(room, tab2, user)
+
+    assert connections.stop_typing(room, tab1, user) is False
+    assert connections.stop_typing(room, tab2, user) is True
+    assert connections.stop_typing(room, tab2, user) is False
+
+
+def test_ws_typing_events_are_forwarded_and_stop_on_disconnect(
+    context, monkeypatch
+):
+    client, conversation_id, sender_id = context
+    recipient_id = uuid4()
+    notifications = []
+
+    monkeypatch.setattr(
+        websocket_chat,
+        "get_conversation_recipient",
+        lambda requested_conversation, requested_sender: recipient_id,
+    )
+
+    async def record_notification(user_id, event):
+        notifications.append((user_id, event))
+
+    monkeypatch.setattr(manager, "notify_user", record_notification)
+
+    with client.websocket_connect(
+        f"/api/v1/conversations/{conversation_id}/ws"
+    ) as ws:
+        ws.send_json({"type": "auth", "token": "valid-token"})
+        assert ws.receive_json()["type"] == "ready"
+
+        ws.send_json({"type": "typing:start"})
+        ws.send_json({"type": "typing:stop"})
+        ws.send_json({"type": "ping"})
+        assert ws.receive_json() == {"type": "pong"}
+
+    assert [event["type"] for _, event in notifications] == [
+        "typing:start",
+        "typing:stop",
+    ]
+    assert all(user_id == recipient_id for user_id, _ in notifications)
+    assert all(
+        event["conversation_id"] == str(conversation_id)
+        and event["sender_id"] == str(sender_id)
+        for _, event in notifications
+    )
+
+
+def test_ws_typing_is_stopped_when_sender_disconnects(
+    context, monkeypatch
+):
+    client, conversation_id, sender_id = context
+    recipient_id = uuid4()
+    notifications = []
+
+    monkeypatch.setattr(
+        websocket_chat,
+        "get_conversation_recipient",
+        lambda requested_conversation, requested_sender: recipient_id,
+    )
+
+    async def record_notification(user_id, event):
+        notifications.append((user_id, event))
+
+    monkeypatch.setattr(manager, "notify_user", record_notification)
+
+    with client.websocket_connect(
+        f"/api/v1/conversations/{conversation_id}/ws"
+    ) as ws:
+        ws.send_json({"type": "auth", "token": "valid-token"})
+        assert ws.receive_json()["type"] == "ready"
+        ws.send_json({"type": "typing:start"})
+        ws.send_json({"type": "ping"})
+        assert ws.receive_json() == {"type": "pong"}
+
+    assert [event["type"] for _, event in notifications] == [
+        "typing:start",
+        "typing:stop",
+    ]
+    assert notifications[-1][1]["sender_id"] == str(sender_id)
 
 def test_presence_is_isolated_between_rooms():
     connections = ConnectionManager()
@@ -534,4 +739,3 @@ def test_late_subscriber_sees_existing_users(
             # apenas os eventos do protocolo que solicitar.
             bob.send_json({"type": "ping"})
             assert bob.receive_json() == {"type": "pong"}
-

@@ -14,6 +14,7 @@ from app.dependencies.current_user import get_current_user
 from app.models.user import User
 from app.models.conversation import Conversation
 from app.models.message import Message
+from app.realtime.manager import manager
 
 
 @pytest.fixture
@@ -90,6 +91,37 @@ def test_send_message(context):
     assert response.json()["sender_id"] == str(user.id)
     db.add.assert_called_once()
     db.commit.assert_called_once()
+
+
+def test_http_message_notifies_other_participant_after_commit(context, monkeypatch):
+    client, db, user = context
+    recipient_id = uuid4()
+    conversation = make_conversation(user.id, recipient_id)
+    db.get.return_value = conversation
+    message_id = uuid4()
+
+    def simulate_refresh(obj):
+        obj.id = message_id
+        obj.created_at = datetime.now(timezone.utc)
+
+    db.refresh.side_effect = simulate_refresh
+    notifications = []
+
+    async def record_notification(user_id, event):
+        notifications.append((user_id, event))
+
+    monkeypatch.setattr(manager, "notify_user", record_notification)
+
+    response = client.post(
+        f"/api/v1/conversations/{conversation.id}/messages",
+        json={"body": "Olá pelo endpoint HTTP"},
+    )
+
+    assert response.status_code == 201
+    assert db.commit.call_count == 1
+    assert notifications[0][0] == recipient_id
+    assert notifications[0][1]["event_id"] == str(message_id)
+    assert notifications[0][1]["kind"] == "message"
 
 
 def test_list_messages_with_pagination(context):

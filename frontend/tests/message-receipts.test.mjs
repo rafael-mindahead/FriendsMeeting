@@ -1,0 +1,131 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mergedMessages } from "../js/lib/conversations.js";
+import { renderMessageItems } from "../js/views/chat.js";
+
+const user={id:"me"};
+const message=(overrides={})=>({
+  id:"message-1",
+  sender_id:"me",
+  body:"Oi",
+  created_at:"2026-11-05T12:00:00Z",
+  delivered_at:null,
+  read_at:null,
+  ...overrides
+});
+
+function render(item){
+  return renderMessageItems({
+    user,
+    selectedId:"conversation-1",
+    messages:new Map([["conversation-1",[item]]]),
+    olderAvailable:new Map()
+  });
+}
+
+function renderMessages(messages,options={}){
+  return renderMessageItems({
+    user,
+    selectedId:"conversation-1",
+    messages:new Map([["conversation-1",messages]]),
+    olderAvailable:new Map(),
+    ...options
+  });
+}
+
+test("shows one white check for a sent message",()=>{
+  const html=render(message());
+  assert.match(html,/message-receipt" role="img" aria-label="Enviada"/);
+  assert.match(html,/class="message-receipt"[^]*<path d="m5 12\.5/);
+  assert.doesNotMatch(html,/message-receipt read/);
+});
+
+test("shows two white checks after delivery",()=>{
+  const html=render(message({delivered_at:"2026-11-05T12:00:01Z"}));
+  assert.match(html,/message-receipt" role="img" aria-label="Entregue"/);
+  assert.match(html,/<path d="m3 12\.5 4 4L17 6"\/><path d="m9 12\.5 4 4L23 6"\/>/);
+  assert.doesNotMatch(html,/message-receipt read/);
+});
+
+test("shows blue double checks only after the message is read",()=>{
+  const html=render(message({
+    delivered_at:"2026-11-05T12:00:01Z",
+    read_at:"2026-11-05T12:00:02Z"
+  }));
+  assert.match(html,/message-receipt read" role="img" aria-label="Visualizada"/);
+});
+
+test("does not show delivery receipts on received messages",()=>{
+  const html=render(message({sender_id:"friend-1"}));
+  assert.doesNotMatch(html,/message-receipt/);
+  assert.match(html,/data-incoming="true"/);
+});
+
+test("message refresh cannot regress a saved delivery or read receipt",()=>{
+  const merged=mergedMessages(
+    [message({
+      delivered_at:"2026-11-05T12:00:01Z",
+      read_at:"2026-11-05T12:00:02Z"
+    })],
+    [message()]
+  );
+  assert.equal(merged[0].delivered_at,"2026-11-05T12:00:01Z");
+  assert.equal(merged[0].read_at,"2026-11-05T12:00:02Z");
+});
+
+test("places the new messages divider before the first unread received message",()=>{
+  const html=renderMessages([
+    message({id:"old",sender_id:"friend-1",read_at:"2026-11-05T12:00:01Z"}),
+    message({id:"mine"}),
+    message({id:"new-1",sender_id:"friend-1"}),
+    message({id:"new-2",sender_id:"friend-1"})
+  ]);
+
+  assert.equal((html.match(/class="unread-divider"/g)||[]).length,1);
+  assert.ok(html.indexOf('class="unread-divider"')<html.indexOf('data-message-id="new-1"'));
+  assert.ok(html.indexOf('class="unread-divider"')>html.indexOf('data-message-id="mine"'));
+  assert.match(html,/Novas mensagens/);
+});
+
+test("hides the new messages divider after every received message is read",()=>{
+  const html=renderMessages([
+    message({id:"read-1",sender_id:"friend-1",read_at:"2026-11-05T12:00:01Z"}),
+    message({id:"read-2",sender_id:"friend-1",read_at:"2026-11-05T12:00:02Z"})
+  ]);
+
+  assert.doesNotMatch(html,/unread-divider/);
+});
+
+test("keeps the divider visible for ten seconds after unread messages are read",()=>{
+  const html=renderMessages([
+    message({id:"old",sender_id:"friend-1",read_at:"2026-11-05T12:00:01Z"}),
+    message({id:"new-1",sender_id:"friend-1",read_at:"2026-11-05T12:00:02Z"}),
+    message({id:"new-2",sender_id:"friend-1",read_at:"2026-11-05T12:00:03Z"})
+  ],{
+    unreadDividerMessages:new Map([["conversation-1",new Set(["new-1","new-2"])]]),
+    unreadDividerHoldUntil:new Map([["conversation-1",Date.now()+10000]])
+  });
+
+  assert.equal((html.match(/class="unread-divider"/g)||[]).length,1);
+  assert.ok(html.indexOf('class="unread-divider"')<html.indexOf('data-message-id="new-1"'));
+  assert.ok(html.indexOf('class="unread-divider"')>html.indexOf('data-message-id="old"'));
+});
+
+test("hides the divider after its ten-second hold has expired",()=>{
+  const html=renderMessages([
+    message({id:"new",sender_id:"friend-1",read_at:"2026-11-05T12:00:02Z"})
+  ],{
+    unreadDividerMessages:new Map([["conversation-1",new Set(["new"])]]),
+    unreadDividerHoldUntil:new Map([["conversation-1",Date.now()-1]])
+  });
+
+  assert.doesNotMatch(html,/unread-divider/);
+});
+
+test("can immediately dismiss the divider after sending a message",()=>{
+  const html=renderMessages([
+    message({id:"unread",sender_id:"friend-1"})
+  ],{unreadDividerDismissed:new Set(["conversation-1"])});
+
+  assert.doesNotMatch(html,/unread-divider/);
+});

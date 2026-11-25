@@ -5,6 +5,9 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 class ConnectionManager:
     def __init__(self):
+        self.user_connections: dict[
+            UUID, set[WebSocket]
+        ] = {}
         # Conversa -> conexao -> usuario
         self.rooms: dict[
             UUID, dict[WebSocket, UUID | None]
@@ -14,6 +17,44 @@ class ConnectionManager:
         self.subscribers: dict[
             UUID, set[WebSocket]
         ] = {}
+        self.typing_connections: dict[
+            UUID, dict[UUID, set[WebSocket]]
+        ] = {}
+
+    def add_user(
+        self,
+        user_id: UUID,
+        websocket: WebSocket,
+    ) -> None:
+        self.user_connections.setdefault(user_id, set()).add(websocket)
+
+    def remove_user(
+        self,
+        user_id: UUID,
+        websocket: WebSocket,
+    ) -> None:
+        connections = self.user_connections.get(user_id)
+        if connections is None:
+            return
+
+        connections.discard(websocket)
+        if not connections:
+            self.user_connections.pop(user_id, None)
+
+    async def notify_user(
+        self,
+        user_id: UUID,
+        event: dict,
+    ) -> None:
+        for websocket in tuple(self.user_connections.get(user_id, set())):
+            try:
+                await websocket.send_json(event)
+            except (
+                WebSocketDisconnect,
+                RuntimeError,
+                OSError,
+            ):
+                self.remove_user(user_id, websocket)
 
     def add(
         self,
@@ -71,6 +112,40 @@ class ConnectionManager:
             self.rooms.pop(conversation_id, None)
 
         return user_id, became_offline
+
+    def start_typing(
+        self,
+        conversation_id: UUID,
+        websocket: WebSocket,
+        user_id: UUID,
+    ) -> None:
+        users = self.typing_connections.setdefault(
+            conversation_id, {}
+        )
+        users.setdefault(user_id, set()).add(websocket)
+
+    def stop_typing(
+        self,
+        conversation_id: UUID,
+        websocket: WebSocket,
+        user_id: UUID,
+    ) -> bool:
+        users = self.typing_connections.get(conversation_id)
+        if users is None:
+            return False
+
+        sockets = users.get(user_id)
+        if sockets is None:
+            return False
+
+        sockets.discard(websocket)
+        if sockets:
+            return False
+
+        users.pop(user_id, None)
+        if not users:
+            self.typing_connections.pop(conversation_id, None)
+        return True
 
     def active(self, conversation_id: UUID) -> int:
         return len(

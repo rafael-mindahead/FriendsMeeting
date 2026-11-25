@@ -13,7 +13,7 @@ Referência: enunciado do Projeto Final de Raciocínio Algorítmico. Este mapa r
 | Interface gráfica (opcional, 1,5) | [Frontend](../frontend), operações integradas às APIs |
 | Persistência (opcional, 1,0) | [Modelos](../backend/app/models), [migrations](../backend/migrations), [Compose](../compose.yaml) |
 | Visualização de informações (opcional, 1,0) | Histórico, datas de mensagens e estado de presença; aceitação do critério depende da avaliação da professora |
-| Funcionalidade adicional (opcional, 1,5) | WebSocket e anexos são evidências técnicas; requer aprovação prévia da proposta e seus critérios |
+| Funcionalidade adicional (opcional, 1,5) | WebSocket, anexos, firmware ESP32, sinalização de chamadas e notificações são evidências técnicas; requer aprovação prévia da proposta e seus critérios |
 | Integração externa (opcional, 1,5) | Cliente HTTP do authService independente; por ser serviço próprio, não presumir que atende ao critério de API externa |
 
 Demonstração reproduzível: seguir [README](../README.md), testar dois usuários, mensagens, reconexão e histórico. Verificar os resultados reais em [Actions](https://github.com/rafael-mindahead/FriendsMeeting/actions). A avaliação individual considera as três sprints e a apresentação; os registros de cada integrante devem ser entregues separadamente.

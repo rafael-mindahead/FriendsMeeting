@@ -37,7 +37,7 @@ jobs:
               html=file.read_text(encoding="utf-8")
               import re
               for asset in re.findall(r'(?:href|src)="(/(?:css|js|assets)/[^"]+)"', html):
-                  local=Path("frontend") / asset.lstrip("/")
+                  local=Path("frontend") / asset.split("?", 1)[0].split("#", 1)[0].lstrip("/")
                   assert local.is_file(), f"Falta o arquivo {local}"
           print("HTML assets OK")
           PY

@@ -121,8 +121,8 @@ def test_list_conversations(context):
         uuid4(),
     )
 
-    db.scalars.return_value.all.return_value = [
-        conversation
+    db.execute.return_value.all.return_value = [
+        (conversation, 3)
     ]
 
     response = client.get("/api/v1/conversations")
@@ -130,6 +130,12 @@ def test_list_conversations(context):
     assert response.status_code == 200
     assert len(response.json()) == 1
     assert response.json()[0]["id"] == str(conversation.id)
+    assert response.json()[0]["unread_count"] == 3
+
+    query = db.execute.call_args.args[0]
+    sql = str(query.compile(compile_kwargs={"literal_binds": True})).lower()
+    assert "messages.read_at is null" in sql
+    assert f"messages.sender_id != '{user.id.hex}'" in sql
 
 
 def test_invalid_friend_id(context):

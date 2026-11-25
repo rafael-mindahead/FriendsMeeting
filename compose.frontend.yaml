@@ -8,3 +8,19 @@ services:
       api:
         condition: service_healthy
     restart: unless-stopped
+
+  
+  https-proxy:
+    profiles: [https]
+    environment:
+      ESP32_WS_UPSTREAM: ${ESP32_WS_UPSTREAM:-127.0.0.1:81}
+    image: nginx:1.27-alpine
+    ports:
+      - "${FRONTEND_BIND_HOST:-127.0.0.1}:8443:443"
+    volumes:
+      - ./https-proxy/nginx.conf:/etc/nginx/templates/default.conf.template:ro
+      - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      - frontend
+    restart: unless-stopped
+

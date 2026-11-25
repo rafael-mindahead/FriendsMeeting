@@ -3,7 +3,7 @@ import os
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from PIL import Image, UnidentifiedImageError
 
 from app.dependencies.current_user import get_current_user
@@ -38,6 +38,6 @@ async def upload_image(file: UploadFile = File(...), current_user: User = Depend
         image.save(UPLOAD_DIR / filename)
     except HTTPException:
         raise
-    except (UnidentifiedImageError, OSError, ValueError):
+    except (UnidentifiedImageError, Image.DecompressionBombError, OSError, ValueError):
         raise HTTPException(400, "Arquivo de imagem inválido.")
     return {"url": f"/media/{filename}"}

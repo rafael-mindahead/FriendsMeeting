@@ -3,7 +3,7 @@ services:
     build:
       context: ./frontend
     ports:
-      - "127.0.0.1:8081:80"
+      - "${FRONTEND_BIND_HOST:-127.0.0.1}:8081:80"
     depends_on:
       api:
         condition: service_healthy

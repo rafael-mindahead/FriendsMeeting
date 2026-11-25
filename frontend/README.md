@@ -38,7 +38,7 @@ A ação `frontend-tests.yml` valida sintaxe e testes. A ação do backend conti
 
 ## Observações
 
-A integração com ESP32 não foi implementada nesta entrega. Não usar o Compose local como ambiente público sem TLS, rate limiting, autenticação revalidada no WebSocket e observabilidade. A interface de demonstração não persiste dados.
+Não há firmware ESP32 neste repositório; a conectividade Wi-Fi pode ser fornecida externamente. O servidor WebSocket é o FastAPI. Não usar o Compose local como ambiente público sem TLS, rate limiting, autenticação revalidada no WebSocket e observabilidade. A interface de demonstração não persiste dados.
 
 ## Método CRT
 

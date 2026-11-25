@@ -233,7 +233,10 @@ root.addEventListener("click",async event=>{
       if(state.demo)return toast("Entre na sua conta para alterar sua foto.");
       await deleteAvatar();state.avatarRevision="deleted-"+Date.now();
       render();toast("Foto removida.");
-    } else if(action==="attach-image"){\n      if(state.demo)return toast("Entre na sua conta para enviar imagens.");\n      $("#imageInput",root)?.click();\n    } else if(action==="logout"){
+    } else if(action==="attach-image"){
+      if(state.demo)return toast("Entre na sua conta para enviar imagens.");
+      $("#imageInput",root)?.click();
+    } else if(action==="logout"){
       await signOut();
     }
   } catch(error){toast(error.message||"Não foi possível concluir essa ação.");}
@@ -288,10 +291,12 @@ root.addEventListener("change",async event=>{
     const file=event.target.files?.[0];
     if(!file)return;event.target.value="";
     if(state.demo)return toast("Entre na sua conta para enviar imagens.");
-    if(!state.socket)return toast("Conecte-se a uma conversa antes de enviar.");
+    const connection=state.socket;
+    const conversationId=state.selectedId;
+    if(!connection || !conversationId || state.connection!=="connected")return toast("Conecte-se a uma conversa antes de enviar.");
     if(!["image/jpeg","image/png","image/webp"].includes(file.type))return toast("Use JPEG, PNG ou WebP.");
     if(file.size>5*1024*1024)return toast("A imagem deve ter no máximo 5 MB.");
-    try{const data=new FormData();data.append("file",file);const result=await api("/media/images",{method:"POST",body:data});if(!state.socket.send({type:"send_message",body:"IMG:"+result.url}))throw new Error("Conexão indisponível.");toast("Imagem enviada.");}catch(error){toast(error.message||"Falha ao enviar imagem.");}return;
+    try{const data=new FormData();data.append("file",file);const result=await api("/media/images",{method:"POST",body:data});if(state.socket!==connection || state.selectedId!==conversationId || state.connection!=="connected")throw new Error("A conversa mudou ou foi desconectada. Selecione-a e tente novamente.");if(!connection.send({type:"send_message",body:"IMG:"+result.url}))throw new Error("Conexão indisponível.");toast("Imagem encaminhada ao servidor.");}catch(error){toast(error.message||"Falha ao enviar imagem.");}return;
   }
   if(event.target.id!=="avatarUpload")return;
   const file=event.target.files?.[0];

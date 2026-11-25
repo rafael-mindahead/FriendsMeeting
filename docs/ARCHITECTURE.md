@@ -1,4 +1,4 @@
-# FriendsMeeting — arquitetura e contratos (backend HTTP)
+# FriendsMeeting — arquitetura e contratos (HTTP e WebSocket)
 
 ## Escopo implementado
 
@@ -6,7 +6,9 @@
 - **authService**: contas, credenciais, tokens e sessões; FastAPI FriendsMeeting consulta `/auth/me` usando o bearer recebido.
 - **PostgreSQL FriendsMeeting**: `users`, `friend_requests`, `conversations`, `messages`.
 - **PostgreSQL authService + Redis**: responsabilidades exclusivas do serviço de autenticação.
-- **WebSocket/ESP32**: **planejados**, ainda não integrados; o transporte atual é HTTP.
+- **WebSocket**: endpoint FastAPI autenticado por conversa, persistência antes da distribuição, presença, heartbeat e sincronização por cursor após reconexão.
+- **Frontend**: navegador via Nginx, HTTP para operações da API e WebSocket para eventos de chat.
+- **ESP32**: pode fornecer rede local quando configurado externamente; não há firmware ESP32 neste repositório.
 
 ## Modelo de dados
 
@@ -46,11 +48,15 @@ Uma amizade aceita é representada por `friend_requests.status = 'accepted'`, se
 
 Todas as rotas acima, exceto `/auth/*`, exigem Bearer válido. As chamadas por usuário não recebem `sender_id` arbitrário do cliente: a API deriva o remetente de `get_current_user`. Consultas de terceiros a conversas retornam **404** sem revelar se a conversa existe.
 
+## Comunicação em tempo real
+
+O cliente abre `/api/v1/conversations/{conversation_id}/ws`, envia `auth` com token, recebe `ready` e usa `send_message`, `subscribe_presence`, `sync_messages` e `ping`. O servidor verifica a participação na conversa, persiste mensagens no PostgreSQL e distribui o evento `message` aos participantes conectados. Imagens são carregadas por `POST /api/v1/media/images` e o chat referencia o arquivo por URL; acesso à mídia por URL não equivale a autorização por conversa.
+
 ## Pontos de atenção
 
 1. **Paginação `offset`**: suficiente para MVP; futuramente preferir cursor (`created_at`, `id`) para evitar deslocamentos enquanto novas mensagens chegam.
 2. **Autorização do banco**: a API verifica participação, mas as FKs de `messages` sozinhas não restringem remetentes aos dois participantes. Evitar escrita direta no banco fora dessa API; considerar reforço no banco conforme necessidade.
-3. **Sem tempo real**: não há conexão WebSocket, entrega push, confirmações de leitura ou fila offline implantadas.
+3. **Tempo real**: o gerenciador mantém conexões por conversa em memória de um único processo. Não há broker distribuído, confirmação de leitura nem fila offline implementados.
 4. **ESP32 offline**: precisará autenticação local adequada, política de retenção e sincronização ao retornar a API, sem prometer acesso ao PostgreSQL quando ela estiver desligada.
 5. **CI**: executa migracoes reais em banco temporário, testes com mocks e testes PostgreSQL. O banco do Compose principal não participa da suíte.
 

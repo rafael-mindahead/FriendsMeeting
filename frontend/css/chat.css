@@ -21,3 +21,5 @@ html[data-theme="light"] .message-receipt{color:#344b3d;filter:drop-shadow(0 1px
 html[data-theme="light"] .message-receipt svg{stroke:#344b3d}
 html[data-theme="light"] .message-receipt.read{color:#0878c5}
 html[data-theme="light"] .message-receipt.read svg{stroke:#0878c5}
+
+.attach-button{background:transparent!important;color:var(--muted)!important;border:0!important;font-size:25px!important;width:40px!important;height:38px!important}.attach-button:hover{color:var(--mint)!important}.chat-image{display:block;max-width:min(100%,380px);max-height:380px;border-radius:12px;object-fit:contain}.message-bubble:has(.chat-image){padding:6px;max-width:100%}.chat-message:has(.chat-image){max-width:min(82%,500px)}\n

@@ -1,112 +1,67 @@
 # FriendsMeeting
 
-Plataforma de conversas privadas em desenvolvimento, com **FastAPI**, **PostgreSQL**, **Docker Compose** e autenticação delegada ao **authService**. O objetivo futuro é permitir comunicação em rede local via **WebSocket/ESP32**, inclusive em um cenário com o backend temporariamente indisponível.
+Projeto acadêmico de Raciocínio Algorítmico: aplicação de mensagens privadas com backend em Python (FastAPI), frontend web e persistência PostgreSQL.
 
-> **Estado atual:** o backend HTTP para cadastro/login, perfis, amizades, conversas e mensagens está implementado. **WebSocket, firmware do ESP32 e interface web ainda não estão implementados.** Não confunda as APIs HTTP existentes com um chat em tempo real pronto.
+## Funcionalidades
 
-## Funcionalidades disponíveis
+- Cadastro, login, renovação de sessão e recuperação de senha via authService.
+- Perfil, código de amizade, convites, aceite/recusa e lista de amigos.
+- Conversas privadas entre amigos, mensagens em tempo real via WebSocket, presença e reconexão com sincronização de mensagens.
+- Histórico persistente, fotos de perfil e anexos de imagem (JPEG, PNG, WebP, até 5 MiB).
+- Interface responsiva com temas claro e escuro.
+- Testes Python com pytest e PostgreSQL isolado; verificações JavaScript e Playwright em GitHub Actions.
 
-- Cadastro, login, refresh, logout e recuperação de senha por proxy para o authService.
-- Perfil local UUID, associado ao identificador inteiro do authService por `auth_user_id`.
-- Código de amizade único no formato `FM-XXXXXXXX`, solicitações, aceite, recusa, reenvio e listagem de amigos.
-- Conversa privada única por par de amigos; criação idempotente (201 nova / 200 existente).
-- Envio de mensagens textuais de **1 a 2.000 caracteres**, rejeitando conteúdo só com espaços.
-- Histórico persistente, ordenado por data/ID decrescentes, com `limit` (1–100, padrão 20) e `offset` (padrão 0).
-- Autorização por participante: usuários externos não conseguem consultar nem enviar mensagens em conversas alheias.
-- Testes unitários e testes de integração em **PostgreSQL separado**, com CI no GitHub Actions.
+## Requisitos e instalação
 
-## Arquitetura
+Instale Git e Docker Desktop (Windows/macOS) ou Docker Engine com o plugin Compose (Linux). Inicie o Docker antes de executar os comandos. Não é necessário instalar Python, Node.js ou PostgreSQL diretamente para utilizar a aplicação.
 
-```text
-Navegador / cliente HTTP
-       |
-       v
-FriendsMeeting FastAPI (:8000) ----HTTP interno----> authService FastAPI (:8001 no host)
-       |                                            |               |
-       v                                            v               v
-PostgreSQL FriendsMeeting                  PostgreSQL auth       Redis auth
-(users, friend_requests,
- conversations, messages)
-
-[Futuro] Navegadores <-- WebSocket local --> ESP32 (sem API Python ativa)
-```
-
-O FriendsMeeting **não valida JWT por conta própria**: encaminha o token a `GET /auth/me` do authService e provisiona o perfil local com UUID. Credenciais e sessões pertencem ao authService. Perfis legados não são vinculados silenciosamente apenas por e-mail.
-
-O projeto possui **um único** `compose.yaml` para as duas APIs, dois bancos PostgreSQL e o Redis. Não é preciso clonar o authService separadamente para rodar esta versão; seu código está em `services/auth-service/`.
-
-Detalhes adicionais: [arquitetura e contratos HTTP](docs/ARCHITECTURE.md).
-
-## Preparação local (macOS / Linux)
-
-Requisitos: Docker Desktop/Engine, Docker Compose e Git. Para os testes locais fora dos contêineres, Python 3.12+.
+Clone o repositório:
 
 ```bash
 git clone https://github.com/rafael-mindahead/FriendsMeeting.git
 cd FriendsMeeting
-git switch develop
-cp .env.example .env
+git switch main
 ```
 
-Edite `.env` definindo **POSTGRES_USER, POSTGRES_PASSWORD e POSTGRES_DB**. Para a autenticação, `AUTH_POSTGRES_*` pode ser definido separadamente; em desenvolvimento local o Compose possui padrões. Uma chave `AUTH_SECRET_KEY` explícita é recomendada para ambientes persistentes; sem ela, o serviço pode gerar e persistir uma no volume `auth_config`.
-
-**Não sobrescreva** seu `.env` existente nem remova volumes de bancos já configurados.
+Na raiz, copie `.env.example` para `.env` (no Windows PowerShell use `Copy-Item .env.example .env`; no macOS/Linux use `cp .env.example .env`). Se já existe um .env, preserve seus valores. Abra o arquivo e escolha valores para POSTGRES_USER, POSTGRES_PASSWORD e POSTGRES_DB. Use letras e números na senha local para evitar caracteres reservados em URLs. Os campos AUTH_* opcionais podem ficar como no exemplo. Não publique credenciais.
 
 ```bash
-docker compose up -d --build
-docker compose ps
-
-curl -f http://localhost:8000/api/v1/health
-curl -f http://localhost:8001/health
+docker compose -f compose.yaml -f compose.frontend.yaml up -d --build --wait
+docker compose -f compose.yaml -f compose.frontend.yaml ps
 ```
 
-- FriendsMeeting Swagger: <http://localhost:8000/docs>
-- authService Swagger: <http://localhost:8001/docs>
-- As migrations são aplicadas no início da API (`alembic upgrade head`).
-- O authService pode levar alguns segundos para ficar saudável no primeiro início.
+Abra **http://localhost:8081/app.html** para cadastro/login. A landing fica em http://localhost:8081 e a demonstração visual sem persistência em http://localhost:8081/app.html?demo=1. Documentação interativa: http://localhost:8000/docs. As migrations do banco são aplicadas automaticamente na inicialização. A primeira execução requer internet para baixar imagens e dependências.
 
-**Nunca use `docker compose down -v`** em um ambiente com dados que deseja preservar: o comando apaga os volumes do Compose.
+### Demonstração funcional (dois usuários)
 
-## Exemplo do fluxo HTTP
+1. Abra a aplicação em dois navegadores ou janelas independentes; cadastre duas contas com e-mails distintos.
+2. No perfil do segundo usuário, copie o código de amizade. No primeiro, envie um convite usando o código.
+3. Aceite o convite na segunda conta e abra a conversa nas duas contas.
+4. Envie mensagens e observe a entrega em tempo real e a presença; teste um anexo pequeno.
+5. Recarregue, entre novamente e confira o histórico. Pare e reinicie os serviços (sem apagar volumes) para verificar persistência.
 
-### 1. Cadastro e login
+Para demonstrar entre dois computadores em uma rede local confiável (inclusive Wi-Fi fornecido pelo ESP32, se configurado separadamente), acrescente `FRONTEND_BIND_HOST=0.0.0.0` ao .env antes de iniciar e acesse `http://IP_DO_SERVIDOR:8081/app.html` no segundo computador. Autorize a porta 8081 no firewall local, se necessário. O FastAPI hospeda o WebSocket; este repositório não inclui firmware ESP32 nem funcionamento offline sem o backend. Não exponha a aplicação à internet.
+
+### Diagnóstico e encerramento
 
 ```bash
-curl -i -X POST http://localhost:8000/api/v1/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"username":"alice_01","email":"alice01@example.com","password":"SenhaDeTeste2026!"}'
-
-curl -s -X POST http://localhost:8000/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"alice01@example.com","password":"SenhaDeTeste2026!"}'
+docker compose -f compose.yaml -f compose.frontend.yaml logs --tail=100
+docker compose -f compose.yaml -f compose.frontend.yaml stop
 ```
 
-Use o `access_token` do login nas chamadas autenticadas:
+Se a porta 8081 ou 8000 estiver ocupada, libere-a antes de iniciar. Nunca use `down -v` se quiser conservar os dados. O banco de dados e os anexos novos ficam em volumes do Docker; arquivos enviados antes da montagem do volume não são migrados automaticamente.
 
-```bash
-curl -H "Authorization: Bearer SEU_TOKEN" \
-  http://localhost:8000/api/v1/users/me
-```
+## Arquitetura e dependências
 
-### 2. Amizades, conversa e mensagens
+Navegador → Nginx → FastAPI (HTTP + WebSocket) → PostgreSQL. O FastAPI consulta a API HTTP interna do authService; esta utiliza PostgreSQL próprio e Redis para autenticação. O ESP32 pode fornecer conectividade local, não substitui o servidor WebSocket Python.
 
-- `POST /api/v1/friends/requests` com `{"friend_code":"FM-XXXXXXXX"}`.
-- `GET /api/v1/friends/requests` lista solicitações recebidas pendentes.
-- `PATCH /api/v1/friends/requests/{id}` com `{"action":"accept"}` ou `{"action":"reject"}`.
-- `GET /api/v1/friends` lista amigos aceitos.
-- `POST /api/v1/conversations` com `{"friend_id":"UUID_DO_AMIGO"}`.
-- `GET /api/v1/conversations` lista conversas próprias.
-- `GET /api/v1/conversations/{id}` consulta uma conversa própria.
-- `POST /api/v1/conversations/{id}/messages` com `{"body":"Olá!"}`.
-- `GET /api/v1/conversations/{id}/messages?limit=20&offset=0` consulta o histórico.
+Bibliotecas: FastAPI, Uvicorn, SQLAlchemy, psycopg, Alembic, Pydantic, httpx, Pillow e python-multipart; as dependências completas estão em [backend/requirements.txt](backend/requirements.txt) e [services/auth-service/requirements.txt](services/auth-service/requirements.txt). Frontend em HTML/CSS/JavaScript, servido por Nginx.
 
-Toda rota de amizades, conversas e mensagens exige `Authorization: Bearer`, validado pelo authService. A mensagem não é enviada instantaneamente ao outro navegador ainda; o histórico é consultado via HTTP.
+Veja [arquitetura e contratos](docs/ARCHITECTURE.md), [frontend](frontend/README.md) e [fotos](docs/AVATARS.md).
 
-## Testes: mocks e PostgreSQL real
+## Testes automatizados
 
-A execução completa usa o banco `friendsmeeting_test` na porta local **5433**, isolado do banco principal. Os testes de integração abrem transações que são revertidas ao final de cada caso. Não execute as migrations de testes apontando para o banco principal.
-
-Na raiz do repositório:
+Confira os resultados em [GitHub Actions](https://github.com/rafael-mindahead/FriendsMeeting/actions). Para testes locais, use Python 3.12 e PostgreSQL de teste isolado:
 
 ```bash
 docker compose -p friendsmeeting-tests -f compose.test.yaml up -d --wait
@@ -114,42 +69,16 @@ cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements-dev.txt
-```
-
-Aplique as migrations no banco de testes:
-
-```bash
 export FRIENDSMEETING_TEST_DATABASE_URL="postgresql+psycopg://test:test@127.0.0.1:5433/friendsmeeting_test"
-DATABASE_URL="$FRIENDSMEETING_TEST_DATABASE_URL" python -m alembic upgrade head
-DATABASE_URL="$FRIENDSMEETING_TEST_DATABASE_URL" python -m pytest tests/ -v
+export DATABASE_URL="$FRIENDSMEETING_TEST_DATABASE_URL"
+python -m alembic upgrade head
+python -m pytest tests/ -v
 ```
 
-Para executar apenas os testes com mocks:
+No Windows, use o Python do ambiente virtual e defina as variáveis equivalentes no PowerShell. Os testes de frontend são descritos em frontend/README.md. Não execute migrations de teste contra o banco principal.
 
-```bash
-python -m pytest tests/test_messages.py tests/test_conversations.py -v
-```
+## Limitações e entrega acadêmica
 
-O [workflow de CI](.github/workflows/backend-tests.yml) provisiona o PostgreSQL temporário, aplica migrations e executa a suíte completa a cada push em `develop`/`main` e em pull requests. A suíte do authService vendorizado é independente; consulte `services/auth-service/README.md` para o ambiente específico de testes desse serviço.
+Aplicação para demonstração local; antes de produção são necessários TLS, controles adicionais de segurança e acesso privado a anexos. As imagens enviadas no chat e fotos públicas são acessíveis por URL a quem as possuir. A conexão WebSocket depende do backend ativo. Chamadas de voz/vídeo e firmware ESP32 não são comprovados nesta versão.
 
-## Próximas entregas
-
-- [x] Docker Compose unificado, PostgreSQL, Redis e migrations
-- [x] Autenticação delegada, perfis e códigos de amizade
-- [x] Solicitações de amizade, aceite, recusa e listagem
-- [x] Conversas privadas e histórico persistente
-- [x] Testes automatizados de API e integração PostgreSQL
-- [ ] WebSocket autenticado, presença e notificações em tempo real
-- [ ] Integração ESP32 e testes entre dois notebooks em rede local
-- [ ] Interface web responsiva
-- [ ] Estratégia de sincronização offline, robustez e observabilidade
-
-## Segurança e cuidados
-
-Nunca versione `.env`, credenciais ou `AUTH_SECRET_KEY`. O Compose é direcionado a desenvolvimento local; antes de expor o serviço publicamente, configurar TLS/HTTPS/WSS, CORS restrito, limites de taxa, logs de auditoria e política de retenção. `HTTP 404` oculta a existência de conversas de outros usuários. Os testes automatizados não substituem uma auditoria de segurança externa.
-
-### Método CRT e branches
-
-Desenvolvimento incremental em `develop`: **Criar, Ler e Testar**; a `main` recebe marcos validados, preservando o histórico. A branch de trabalho contínuo continua sendo `develop`.
-
-**Licenciamento:** ainda não há arquivo de licença declarado neste repositório; antes de redistribuir ou receber contribuições externas, definir uma licença e registrar atribuições.
+Os registros individuais devem ser PDFs revisados por cada integrante, com as três sprints, evidências reais e nomenclatura exigida pela professora. Consulte [orientação para os registros](registros_individuais/README.md) e [mapa da rubrica](docs/RUBRICA.md). As correções posteriores à apresentação ficam identificadas pelo histórico Git; não substituem contribuições ou evidências das sprints.

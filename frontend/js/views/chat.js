@@ -2,6 +2,12 @@ import { esc, fmtTime } from "../lib/dom.js";
 import { avatar } from "../lib/avatars.js";
 import { icon } from "../lib/icons.js";
 
+function messageContent(body){
+  const match=/^IMG:(\/media\/[a-f0-9-]+\.(?:jpg|png|webp))$/i.exec(body||"");
+  if(match) return '<a href="'+match[1]+'" target="_blank" rel="noopener noreferrer"><img class="chat-image" src="'+match[1]+'" alt="Imagem enviada" loading="lazy"></a>';
+  return esc(body);
+}
+
 export function renderMessageItems(state){
   const messages=state.messages.get(state.selectedId)||[];
   if(!messages.length) return `<div class="empty-state"><div class="empty-glyph">${icon("message-circle",40)}</div><h2>Sua primeira mensagem</h2><p>Que tal começar com um olá?</p></div>`;
@@ -27,7 +33,7 @@ export function renderMessageItems(state){
       ?'<div class="unread-divider" role="separator" aria-label="Novas mensagens"><span>Novas mensagens</span></div>'
       :"";
     return `${divider}<article class="chat-message ${mine?"mine":""}" data-message-id="${esc(item.id)}" data-sender-id="${esc(item.sender_id)}" data-incoming="${!mine}">
-      <div class="message-bubble">${esc(item.body)}</div><div class="message-meta"><time class="message-time" datetime="${esc(item.created_at)}">${fmtTime(item.created_at)}</time>${receipt}</div></article>`;
+      <div class="message-bubble">${messageContent(item.body)}</div><div class="message-meta"><time class="message-time" datetime="${esc(item.created_at)}">${fmtTime(item.created_at)}</time>${receipt}</div></article>`;
   }).join("");
   const more=state.olderAvailable?.get(state.selectedId)?`<button type="button" class="load-older" data-action="load-older">Carregar mensagens anteriores</button>`:"";
   const typingUserId=state.typingUsers?.get(state.selectedId)?.keys().next().value;
@@ -58,8 +64,8 @@ export function renderChat(state){
       ${items}
     </div>
     <form class="chat-composer" id="messageForm">
-      <div class="composer-inner"><textarea id="messageInput" aria-label="Escrever mensagem" name="body" placeholder="Escreva uma mensagem…" rows="1" maxlength="2000" required></textarea>
+      <input id="imageInput" type="file" accept="image/jpeg,image/png,image/webp" hidden><div class="composer-inner"><button type="button" class="attach-button" data-action="attach-image" aria-label="Enviar imagem" title="Enviar imagem">＋</button><textarea id="messageInput" aria-label="Escrever mensagem" name="body" placeholder="Escreva uma mensagem…" rows="1" maxlength="2000" required></textarea>
       <button type="submit" aria-label="Enviar mensagem" ${!state.demo&&state.connection!=="connected"?"disabled":""}>${icon("send")}</button></div>
-      <div class="composer-hint">Enter envia · Shift + Enter quebra a linha</div>
+      <div class="composer-hint">Imagens até 5 MB · Enter envia · Shift + Enter quebra a linha</div>
     </form>`;
 }

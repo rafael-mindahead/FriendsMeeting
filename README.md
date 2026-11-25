@@ -40,7 +40,7 @@ Abra **http://localhost:8081/app.html** para cadastro/login. A landing fica em h
 4. Envie mensagens e observe a entrega em tempo real e a presença; teste um anexo pequeno.
 5. Recarregue, entre novamente e confira o histórico. Pare e reinicie os serviços (sem apagar volumes) para verificar persistência.
 
-Para demonstrar entre dois computadores em uma rede local confiável (inclusive Wi-Fi fornecido pelo ESP32, se configurado separadamente), acrescente `FRONTEND_BIND_HOST=0.0.0.0` ao .env antes de iniciar e acesse `http://IP_DO_SERVIDOR:8081/app.html` no segundo computador. Autorize a porta 8081 no firewall local, se necessário. O FastAPI hospeda o WebSocket; este repositório não inclui firmware ESP32 nem funcionamento offline sem o backend. Não exponha a aplicação à internet.
+Para demonstrar entre dois computadores em uma rede local confiável (inclusive Wi-Fi fornecido pelo ESP32, se configurado separadamente), acrescente `FRONTEND_BIND_HOST=0.0.0.0` ao .env antes de iniciar e acesse `http://IP_DO_SERVIDOR:8081/app.html` no segundo computador. Autorize a porta 8081 no firewall local, se necessário. O FastAPI hospeda o WebSocket; o firmware ESP32 em `esp32/` implementa sinalização de chamadas; o chat de mensagens depende do backend ativo. Não exponha a aplicação à internet.
 
 ### Diagnóstico e encerramento
 
@@ -53,7 +53,7 @@ Se a porta 8081 ou 8000 estiver ocupada, libere-a antes de iniciar. Nunca use `d
 
 ## Arquitetura e dependências
 
-Navegador → Nginx → FastAPI (HTTP + WebSocket) → PostgreSQL. O FastAPI consulta a API HTTP interna do authService; esta utiliza PostgreSQL próprio e Redis para autenticação. O ESP32 pode fornecer conectividade local, não substitui o servidor WebSocket Python.
+Navegador → Nginx → FastAPI (HTTP + WebSocket) → PostgreSQL. O FastAPI consulta a API HTTP interna do authService; esta utiliza PostgreSQL próprio e Redis para autenticação. O ESP32 atua como servidor WebSocket de sinalização de chamadas, enquanto o Python fornece a API e o WebSocket de mensagens.
 
 Bibliotecas: FastAPI, Uvicorn, SQLAlchemy, psycopg, Alembic, Pydantic, httpx, Pillow e python-multipart; as dependências completas estão em [backend/requirements.txt](backend/requirements.txt) e [services/auth-service/requirements.txt](services/auth-service/requirements.txt). Frontend em HTML/CSS/JavaScript, servido por Nginx.
 
@@ -79,6 +79,10 @@ No Windows, use o Python do ambiente virtual e defina as variáveis equivalentes
 
 ## Limitações e entrega acadêmica
 
-Aplicação para demonstração local; antes de produção são necessários TLS, controles adicionais de segurança e acesso privado a anexos. As imagens enviadas no chat e fotos públicas são acessíveis por URL a quem as possuir. A conexão WebSocket depende do backend ativo. Chamadas de voz/vídeo e firmware ESP32 não são comprovados nesta versão.
+Aplicação para demonstração local; antes de produção são necessários TLS, controles adicionais de segurança e acesso privado a anexos. As imagens enviadas no chat e fotos públicas são acessíveis por URL a quem as possuir. A conexão WebSocket depende do backend ativo. O firmware e o código de chamadas WebRTC foram integrados a partir da branch do Vinícius. A execução física e as chamadas não foram validadas nesta integração.
 
 Os registros individuais devem ser PDFs revisados por cada integrante, com as três sprints, evidências reais e nomenclatura exigida pela professora. Consulte [orientação para os registros](registros_individuais/README.md) e [mapa da rubrica](docs/RUBRICA.md). As correções posteriores à apresentação ficam identificadas pelo histórico Git; não substituem contribuições ou evidências das sprints.
+
+## Recursos do ESP32 e chamadas (opcionais)
+
+O projeto inclui firmware PlatformIO para `esp32dev`, sinalização WebSocket no ESP32, autenticação de chamadas com credencial temporária e WebRTC no navegador, além de indicadores de digitação, entrega/leitura e notificações. Para configurar o hardware, copie `esp32/include/secrets.example.h` para `esp32/include/secrets.h`, informe as credenciais Wi-Fi e IP/porta da API, defina a mesma `ESP32_DEVICE_KEY` no `.env`, compile com `pio run` e grave com `pio run -t upload`. Não versione segredos. Nas configurações do frontend, informe a URL WebSocket do ESP32. O acesso ao microfone requer contexto seguro do navegador. Para habilitar HTTPS, forneça `certs/localhost.pem` e `certs/localhost-key.pem` (certificados locais confiáveis para o nome/IP acessado), configure `ESP32_WS_UPSTREAM=IP_DO_ESP32:81` e execute `docker compose -f compose.yaml -f compose.frontend.yaml --profile https up -d --build --wait`. Acesse `https://localhost:8443/app.html` e use `wss://localhost:8443/esp32` (ou o host correspondente). Sem hardware/certificados, use os comandos padrão de HTTP acima.
